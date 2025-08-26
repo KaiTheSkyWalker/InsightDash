@@ -52,16 +52,21 @@ def create_dashboard(data_dict):
                 vals = vals.union(pd.Index(s.dropna().unique()))
         return list(vals)
 
-    base_palette = (
-        px.colors.qualitative.Plotly
-        + px.colors.qualitative.Set2
-        + px.colors.qualitative.Set3
-        + px.colors.qualitative.Bold
-    )
+    # --- COLOR THEME UPDATE ---
+    # New color theme based on the user-provided image.
+    base_palette = [
+        '#E73489',  # Bright Pink
+        '#7E32A8',  # Purple
+        '#49319B',  # Dark Blue
+        '#3B63C4',  # Medium Blue
+        '#45B4D3',  # Light Blue
+    ]
 
     def color_map_from_list(keys, palette=base_palette):
-        colors = list(islice(cycle(palette), len(keys)))
-        return dict(zip(keys, colors))
+        # Extend palette if there are more keys than colors to avoid harsh cycling
+        extended_palette = list(islice(cycle(palette), len(keys)))
+        return dict(zip(keys, extended_palette))
+
 
     def pack_df(df: pd.DataFrame, max_rows: int = 300):
         recs = df.head(max_rows).to_dict('records')
@@ -344,7 +349,7 @@ def create_dashboard(data_dict):
             return ""
         if not selected_graphs:
             return html.Div([
-                html.H4("No charts selected.", style={'color': 'crimson'}),
+                html.H4("No charts selected.", style={'color': '#991B1B'}),
                 html.P("Use “Select this graph” under one or more charts.")
             ])
 
@@ -367,7 +372,7 @@ def create_dashboard(data_dict):
 
         if not charts_payload:
             return html.Div([
-                html.H4("No data available.", style={'color': 'crimson'}),
+                html.H4("No data available.", style={'color': '#991B1B'}),
                 html.P("Re-select charts after adjusting filters.")
             ])
 
@@ -402,10 +407,13 @@ def create_dashboard(data_dict):
                     "LLM not configured. Install `google-genai` or `google-generativeai` and set `GOOGLE_API_KEY`."
                 )
         except Exception as e:
-            llm_text = f"LLM error: {e}"
+            return html.Div([
+                html.H4("Error Generating Report", style={'color': '#991B1B'}),
+                html.P(f"LLM error: {e}")
+            ])
 
         return html.Div([
-            html.H4("Report", style={'color': 'green'}),
+            html.H4("Report", style={'color': '#007bff'}),
             dcc.Markdown(llm_text or "_No content returned._", link_target="_blank")
         ])
 
@@ -518,6 +526,9 @@ def create_dashboard(data_dict):
         fig_q1 = px.line(
             df_q1, x='week_number', y='total_registrations', title=GRAPH_LABELS['q1'], markers=True
         ).update_layout(uirevision='constant')
+        # Apply new theme color to the line chart
+        fig_q1.update_traces(marker_color=base_palette[0], line_color=base_palette[0])
+
 
         fig_q2 = create_fig(
             df_q2_plot, 'week_number', 'market_share_plot', 'outlet_category',
