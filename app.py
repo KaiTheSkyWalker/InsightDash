@@ -9,7 +9,6 @@ import json
 from itertools import cycle, islice
 from dash_resizable_panels import PanelGroup, Panel, PanelResizeHandle
 
-# ---------- LLM (Gemini) optional setup ----------
 HAVE_NEW_GENAI = False
 HAVE_LEGACY_GENAI = False
 try:
@@ -27,11 +26,57 @@ try:
 except Exception:
     GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
-MODEL_NAME = "gemini-1.5-flash"  # use "gemini-1.5-pro" for deeper analysis
+MODEL_NAME = "gemini-2.0-flash"  # use "gemini-1.5-pro" for deeper analysis
 
 # ---------- Data source ----------
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
-from data_layer.tab_1 import get_tab1_results
+# Mock data source if the original is not available
+def get_tab1_results_mock():
+    weeks = range(1, 11)
+    outlets = ['Dealer', 'Online', 'Fleet']
+    regions = ['North', 'South']
+    states = {'North': ['NY', 'MA'], 'South': ['CA', 'TX']}
+    customers = ['Retail', 'Corporate']
+    services = ['New', 'Used', 'Lease']
+
+    q1_data = {'week_number': weeks, 'total_registrations': [100 + w * 10 for w in weeks]}
+    df_q1 = pd.DataFrame(q1_data)
+
+    q2_data = []
+    for w in weeks:
+        for o in outlets:
+            q2_data.append({'week_number': w, 'outlet_category': o, 'market_share_percent': 33 + (w if o == 'Online' else -w/2)})
+    df_q2 = pd.DataFrame(q2_data)
+
+    q3_data = []
+    for w in weeks:
+        for o in outlets:
+            for s in services:
+                q3_data.append({'week_number': w, 'outlet_category': o, 'service_type': s, 'registrations': 10 + (5 if s == 'New' else 2)})
+    df_q3 = pd.DataFrame(q3_data)
+
+    q4_data = []
+    for w in weeks:
+        for r in regions:
+            for s in states[r]:
+                q4_data.append({'week_number': w, 'region': r, 'state': s, 'registrations': 20 + (10 if r == 'North' else 5)})
+    df_q4 = pd.DataFrame(q4_data)
+
+    q5_data = []
+    for w in weeks:
+        for c in customers:
+            for o in outlets:
+                q5_data.append({'week_number': w, 'customer_category': c, 'outlet_category': o, 'registrations': 15 + (5 if c == 'Retail' else 0)})
+    df_q5 = pd.DataFrame(q5_data)
+
+    return {'q1': df_q1, 'q2': df_q2, 'q3': df_q3, 'q4': df_q4, 'q5': df_q5}
+
+try:
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
+    from data_layer.tab_1 import get_tab1_results
+except Exception:
+    print("Could not import real data source, using mock data.")
+    get_tab1_results = get_tab1_results_mock
+
 
 # ---------- Fonts / styles ----------
 external_stylesheets = ['https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap']
@@ -147,6 +192,8 @@ def create_dashboard(data_dict):
             id="main-panel-group",
             direction="horizontal",
             autoSaveId="vrdb-split",  # persist widths
+                style={'height': '100dvh', 'minHeight': 0},  # <- add this
+
             children=[
                 # Main Content Panel
                 Panel(
@@ -261,6 +308,20 @@ def create_dashboard(data_dict):
                                     style={'margin': '4px 0 0 0'}
                                 ),
 
+                                # New: Insight mode selector
+                                html.Div([
+                                    html.Label("Analysis Mode", style={'fontWeight': 'bold', 'fontSize': '14px', 'marginTop': '15px'}),
+                                    dcc.RadioItems(
+                                        id='insight-mode-radio',
+                                        options=[
+                                            {'label': 'Individual Insights', 'value': 'individual'},
+                                            {'label': 'Combined Insights', 'value': 'combined'},
+                                        ],
+                                        value='individual',
+                                        labelStyle={'display': 'block', 'marginTop': '5px'}
+                                    ),
+                                ], style={'marginTop': '10px'}),
+
                                 html.Button(
                                     'Generate Insights',
                                     id='generate-button',
@@ -271,16 +332,18 @@ def create_dashboard(data_dict):
                                         'borderRadius': '8px', 'cursor': 'pointer'
                                     }
                                 ),
-                                html.Div(id='generate-output')
+                                html.Div(id='generate-output'),
                             ],
                             style={
-                                'padding': '16px 20px 20px',
+                                'padding': '16px 20px 40px', # Increased bottom padding
                                 'backgroundColor': '#f8f9fa',
                                 'display': 'flex', 'flexDirection': 'column',
                                 'gap': '6px',
                                 'height': '100%', 'minHeight': 0,
                                 'overflowY': 'auto', 'overflowX': 'hidden',
-                                'WebkitOverflowScrolling': 'touch', 'overscrollBehavior': 'contain'
+                                'WebkitOverflowScrolling': 'touch', 'overscrollBehavior': 'contain',
+                                'boxSizing': 'border-box' # Best practice for predictable layout
+                                # 'marginBottom' has been removed
                             }
                         )
                     ],
@@ -314,7 +377,7 @@ def create_dashboard(data_dict):
                 panel_style = {
                     'height': '100vh',
                     'backgroundColor': '#f8f9fa',
-                    'width': '200px'
+                    'width': '100px'
                 }
                 new_store = {'visible': True, 'opened_once': True}
             else:
@@ -342,9 +405,10 @@ def create_dashboard(data_dict):
         State('selected-graphs', 'data'),
         State('selected-data', 'data'),
         State('filter-store', 'data'),
+        State('insight-mode-radio', 'value'), # New state
         prevent_initial_call=True
     )
-    def generate_report(n_clicks, selected_graphs, selected_data, filters):
+    def generate_report(n_clicks, selected_graphs, selected_data, filters, insight_mode):
         if not n_clicks:
             return ""
         if not selected_graphs:
@@ -377,7 +441,9 @@ def create_dashboard(data_dict):
             ])
 
         payload = {"charts": charts_payload}
-        prompt = (
+
+        # Define prompts based on the selected insight mode
+        prompt_individual = (
             "You are a data analyst. I will provide multiple chart datasets as JSON.\n"
             "Need to be detailed"
             "For each chart, return concise markdown:\n"
@@ -390,6 +456,26 @@ def create_dashboard(data_dict):
             + json.dumps(payload, ensure_ascii=False)
             + "\n```"
         )
+
+        prompt_combined = (
+            "You are a senior data analyst. I will provide datasets for multiple charts as JSON.\n"
+            "Your task is to synthesize these datasets to create a holistic overview. "
+            "Instead of analyzing each chart in isolation, focus on the connections, correlations, and combined story they tell.\n\n"
+            "Provide your analysis in concise markdown with the following structure:\n"
+            "### Overall Summary\n"
+            "- A brief, high-level summary of the key findings from all charts combined (2-3 sentences).\n"
+            "### Cross-Chart Insights\n"
+            "- 3-5 bullet points identifying trends, correlations, or discrepancies *between* the different datasets. (e.g., 'The spike in total registrations in week X corresponds with a significant market share increase for Outlet Category Y.')\n"
+            "### Key Outliers or Notables\n"
+            "- Mention any significant outliers or data points that stand out when considering the data as a whole.\n"
+            "### Strategic Recommendation\n"
+            "- Based on your combined analysis, provide one actionable strategic suggestion.\n\n"
+            "JSON data follows:\n```json\n"
+            + json.dumps(payload, ensure_ascii=False)
+            + "\n```"
+        )
+
+        prompt = prompt_combined if insight_mode == 'combined' else prompt_individual
 
         llm_text = None
         try:
@@ -413,9 +499,10 @@ def create_dashboard(data_dict):
             ])
 
         return html.Div([
-            html.H4("Report", style={'color': '#007bff'}),
+            html.H4("Generated Report", style={'color': '#007bff'}),
             dcc.Markdown(llm_text or "_No content returned._", link_target="_blank")
         ])
+
 
     # ----- Filter controller: click-to-filter, toggle off by clicking again -----
     @app.callback(
@@ -532,8 +619,8 @@ def create_dashboard(data_dict):
 
         fig_q2 = create_fig(
             df_q2_plot, 'week_number', 'market_share_plot', 'outlet_category',
-            GRAPH_LABELS['q2'], ['outlet_category'], 'stack', True,
-            outlet_color_map, {'outlet_category': all_outlet_categories}, 'Market Share (%) (Log Scale)'
+            GRAPH_LABELS['q2'], ['outlet_category'], 'stack', False,
+            outlet_color_map, {'outlet_category': all_outlet_categories}, 'Market Share (%)'
         )
 
         fig_q3 = create_fig(
@@ -635,7 +722,6 @@ def create_dashboard(data_dict):
     return app
 
 
-# ---------- Main ----------
 if __name__ == '__main__':
     try:
         data_dict = get_tab1_results()
