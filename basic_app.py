@@ -8,11 +8,6 @@ import os
 import json
 from itertools import cycle, islice
 from dash_resizable_panels import PanelGroup, Panel, PanelResizeHandle
-from dash import dash_table  # for a simple data table in Tab 2
-import numpy as np
-
-from data_layer.tab_1 import get_tab1_results
-from data_layer.tab_2 import get_tab2_results
 
 HAVE_NEW_GENAI = False
 HAVE_LEGACY_GENAI = False
@@ -33,19 +28,23 @@ except Exception:
 
 MODEL_NAME = "gemini-2.0-flash"  # use "gemini-1.5-pro" for deeper analysis
 
+# ---------- Data source ----------
+try:
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'src')))
+    from data_layer.tab_1 import get_tab1_results
+except Exception:
+    print("Could not import real data source, using mock data.")
+
 
 # ---------- Fonts / styles ----------
 external_stylesheets = ['https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap']
 
 
-def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
+def create_dashboard(data_dict):
     """
     Dash app with cross-filtering, stable colors, multi-chart select,
     and Gemini-based summarizer in a resizable, toggleable sidebar.
     """
-    # local alias for Tab 2 dataset (prevents NameError in inner functions)
-    tab2 = data_dict_2 or {}
-
     app = dash.Dash(__name__, suppress_callback_exceptions=True, external_stylesheets=external_stylesheets)
 
     # ----- Helpers -----
@@ -56,7 +55,8 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                 vals = vals.union(pd.Index(s.dropna().unique()))
         return list(vals)
 
-    # --- COLOR THEME ---
+    # --- COLOR THEME UPDATE ---
+    # New color theme based on the user-provided image.
     base_palette = [
         '#E73489',  # Bright Pink
         '#7E32A8',  # Purple
@@ -66,8 +66,10 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
     ]
 
     def color_map_from_list(keys, palette=base_palette):
+        # Extend palette if there are more keys than colors to avoid harsh cycling
         extended_palette = list(islice(cycle(palette), len(keys)))
         return dict(zip(keys, extended_palette))
+
 
     def pack_df(df: pd.DataFrame, max_rows: int = 300):
         recs = df.head(max_rows).to_dict('records')
@@ -142,57 +144,13 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
 
         return df_q1, df_q2_plot, df_q3_plot, df_q4_plot, df_q5_plot
 
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-
-    # data filters for Tab 2
-    def get_filtered_frames_tab2(filters):
-        q1 = tab2.get('q1', pd.DataFrame()).copy()
-        q2 = tab2.get('q2', pd.DataFrame()).copy()
-        q3 = tab2.get('q3', pd.DataFrame()).copy()
-        q4 = tab2.get('q4', pd.DataFrame()).copy()
-
-        # shared filters you already use
-        if filters.get('weeks'):
-            w = filters['weeks']
-            for df in (q1, q2, q3, q4):
-                if 'week_number' in df.columns:
-                    df.query('week_number in @w', inplace=True)
-        if filters.get('outlet_categories'):
-            oc = filters['outlet_categories']
-            for df in (q2, q3):
-                if 'outlet_category' in df.columns:
-                    df.query('outlet_category in @oc', inplace=True)
-        if filters.get('service_types'):
-            st = filters['service_types']
-            if 'service_type' in q3.columns:
-                q3.query('service_type in @st', inplace=True)
-        if filters.get('regions'):
-            rg = filters['regions']
-            for df in (q4,):
-                if 'region' in df.columns:
-                    df.query('region in @rg', inplace=True)
-        if filters.get('states'):
-            stt = filters['states']
-            for df in (q4,):
-                if 'state' in df.columns:
-                    df.query('state in @stt', inplace=True)
-
-        return q1, q2, q3, q4
-
-    # some palettes re-use
-    t2_palette = [
-        '#E73489', '#7E32A8', '#49319B', '#3B63C4', '#45B4D3',
-        '#59C3A6', '#F4A261', '#2A9D8F', '#E9C46A', '#264653'
-    ]
-
     # ----- Layout -----
     app.layout = html.Div([
         PanelGroup(
             id="main-panel-group",
             direction="horizontal",
             autoSaveId="vrdb-split",  # persist widths
-            style={'height': '100dvh', 'minHeight': 0},
+                style={'height': '100dvh', 'minHeight': 0},  # <- add this
 
             children=[
                 # Main Content Panel
@@ -216,7 +174,6 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                             dcc.Store(id='selected-graphs', data=[]),
                             dcc.Store(id='selected-data', data={}),
 
-                            # ---- Filter bar ----
                             html.Div([
                                 html.Div(dcc.Dropdown(
                                     id='week-filter', placeholder="Select Week(s)",
@@ -240,90 +197,37 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                             ], style={'display': 'flex', 'alignItems': 'center', 'padding': '10px 20px',
                                       'backgroundColor': '#f0f0f0'}),
 
-                            # --------- Tabs ---------
-                            dcc.Tabs(
-                                id="tabs",
-                                value="tab1",
-                                children=[
-                                    # ===== TAB 1: Dashboard =====
-                                    dcc.Tab(label="Dashboard", value="tab1", children=[
-                                        html.Div([
-                                            html.Div([
-                                                dcc.Graph(id='graph-q1'),
-                                                html.Button("Select this graph", id='btn-select-q1', n_clicks=0,
-                                                            style={'marginTop': '6px'})
-                                            ], style={'width': '49%', 'display': 'inline-block', 'verticalAlign': 'top'}),
+                            html.Div([
+                                html.Div([
+                                    dcc.Graph(id='graph-q1'),
+                                    html.Button("Select this graph", id='btn-select-q1', n_clicks=0,
+                                                style={'marginTop': '6px'})
+                                ], style={'width': '49%', 'display': 'inline-block', 'verticalAlign': 'top'}),
 
-                                            html.Div([
-                                                dcc.Graph(id='graph-q2'),
-                                                html.Button("Select this graph", id='btn-select-q2', n_clicks=0,
-                                                            style={'marginTop': '6px'})
-                                            ], style={'width': '49%', 'display': 'inline-block', 'verticalAlign': 'top'}),
+                                html.Div([
+                                    dcc.Graph(id='graph-q2'),
+                                    html.Button("Select this graph", id='btn-select-q2', n_clicks=0,
+                                                style={'marginTop': '6px'})
+                                ], style={'width': '49%', 'display': 'inline-block', 'verticalAlign': 'top'}),
 
-                                            html.Div([
-                                                dcc.Graph(id='graph-q3'),
-                                                html.Button("Select this graph", id='btn-select-q3', n_clicks=0,
-                                                            style={'marginTop': '6px'})
-                                            ], style={'width': '49%', 'display': 'inline-block', 'verticalAlign': 'top'}),
+                                html.Div([
+                                    dcc.Graph(id='graph-q3'),
+                                    html.Button("Select this graph", id='btn-select-q3', n_clicks=0,
+                                                style={'marginTop': '6px'})
+                                ], style={'width': '49%', 'display': 'inline-block', 'verticalAlign': 'top'}),
 
-                                            html.Div([
-                                                dcc.Graph(id='graph-q4'),
-                                                html.Button("Select this graph", id='btn-select-q4', n_clicks=0,
-                                                            style={'marginTop': '6px'})
-                                            ], style={'width': '49%', 'display': 'inline-block', 'verticalAlign': 'top'}),
+                                html.Div([
+                                    dcc.Graph(id='graph-q4'),
+                                    html.Button("Select this graph", id='btn-select-q4', n_clicks=0,
+                                                style={'marginTop': '6px'})
+                                ], style={'width': '49%', 'display': 'inline-block', 'verticalAlign': 'top'}),
 
-                                            html.Div([
-                                                dcc.Graph(id='graph-q5'),
-                                                html.Button("Select this graph", id='btn-select-q5', n_clicks=0,
-                                                            style={'marginTop': '6px'})
-                                            ], style={'width': '98%', 'display': 'inline-block', 'verticalAlign': 'top'}),
-                                        ])
-                                    ]),
-
-                                    # ===== TAB 2: Deep-dive (graphs) =====
-                                    dcc.Tab(label="Deep-dive (Tab 2)", value="tab2", children=[
-                                        html.Div([
-                                            # q1: Weekly Trends (bar + 2 lines, dual y-axis)
-                                            html.Div([
-                                                dcc.Graph(id='t2-graph-q1')
-                                            ], style={'width': '98%', 'display': 'inline-block', 'verticalAlign': 'top'}),
-
-                                            # q2: Outlet Category Performance by Week (grouped bars)
-                                            html.Div([
-                                                dcc.Graph(id='t2-graph-q2')
-                                            ], style={'width': '98%', 'display': 'inline-block', 'verticalAlign': 'top'}),
-
-                                            # q3: Outlet Category × Service Type (heatmap)
-                                            html.Div([
-                                                dcc.Graph(id='t2-graph-q3')
-                                            ], style={'width': '98%', 'display': 'inline-block', 'verticalAlign': 'top'}),
-
-                                            # q4a: Efficiency ranking (Top N)
-                                            html.Div([
-                                                dcc.Graph(id='t2-graph-q4a')
-                                            ], style={'width': '98%', 'display': 'inline-block', 'verticalAlign': 'top'}),
-
-                                            # q4b: Regional / State distribution (bar)
-                                            html.Div([
-                                                dcc.Graph(id='t2-graph-q4b')
-                                            ], style={'width': '98%', 'display': 'inline-block', 'verticalAlign': 'top'}),
-                                        ], style={'paddingTop': '10px'})
-                                    ]),
-
-                                    # ===== TAB 3: Selected snapshot JSON =====
-                                    dcc.Tab(label="Selected Data (Tab 3)", value="tab3", children=[
-                                        html.Div([
-                                            html.H3("Selected charts snapshot (JSON)"),
-                                            dcc.Textarea(
-                                                id='tab3-json',
-                                                readOnly=True,
-                                                style={'width': '100%', 'height': '70vh', 'fontFamily': 'monospace', 'fontSize': 12}
-                                            )
-                                        ], style={'paddingTop': '10px'})
-                                    ]),
-                                ],
-                                style={'marginTop': '10px'}
-                            ),
+                                html.Div([
+                                    dcc.Graph(id='graph-q5'),
+                                    html.Button("Select this graph", id='btn-select-q5', n_clicks=0,
+                                                style={'marginTop': '6px'})
+                                ], style={'width': '98%', 'display': 'inline-block', 'verticalAlign': 'top'}),
+                            ])
                         ], style={
                             'padding': '20px',
                             'fontFamily': '"Roboto", sans-serif'
@@ -342,6 +246,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                     style={'display': 'none'}
                 ),
 
+                # Sidebar Panel (start CLOSED)
                 Panel(
                     id="sidebar-panel",
                     children=[
@@ -360,7 +265,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                                     style={'margin': '4px 0 0 0'}
                                 ),
 
-                                # Insight mode selector
+                                # New: Insight mode selector
                                 html.Div([
                                     html.Label("Analysis Mode", style={'fontWeight': 'bold', 'fontSize': '14px', 'marginTop': '15px'}),
                                     dcc.RadioItems(
@@ -387,14 +292,15 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                                 html.Div(id='generate-output'),
                             ],
                             style={
-                                'padding': '16px 20px 40px',
+                                'padding': '16px 20px 40px', # Increased bottom padding
                                 'backgroundColor': '#f8f9fa',
                                 'display': 'flex', 'flexDirection': 'column',
                                 'gap': '6px',
                                 'height': '100%', 'minHeight': 0,
                                 'overflowY': 'auto', 'overflowX': 'hidden',
                                 'WebkitOverflowScrolling': 'touch', 'overscrollBehavior': 'contain',
-                                'boxSizing': 'border-box'
+                                'boxSizing': 'border-box' # Best practice for predictable layout
+                                # 'marginBottom' has been removed
                             }
                         )
                     ],
@@ -424,13 +330,24 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         if new_visibility:
             # OPENING
             if not opened_once:
-                panel_style = {'height': '100vh', 'backgroundColor': '#f8f9fa', 'width': '200px'}
+                # First-ever open: force width to 200px
+                panel_style = {
+                    'height': '100vh',
+                    'backgroundColor': '#f8f9fa',
+                    'width': '100px'
+                }
                 new_store = {'visible': True, 'opened_once': True}
             else:
-                panel_style = {'height': '100vh', 'backgroundColor': '#f8f9fa'}
+                # Subsequent opens: let saved/resized width be used
+                panel_style = {
+                    'height': '100vh',
+                    'backgroundColor': '#f8f9fa'
+                }
                 new_store = {'visible': True, 'opened_once': True}
+
             handle_style = {"width": "5px", "cursor": "col-resize", "backgroundColor": "#ccc"}
             return panel_style, handle_style, new_store
+
         else:
             # CLOSING
             panel_style = {'minWidth': 0, 'width': 0, 'display': 'none', 'height': '100vh', 'backgroundColor': '#f8f9fa'}
@@ -445,7 +362,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         State('selected-graphs', 'data'),
         State('selected-data', 'data'),
         State('filter-store', 'data'),
-        State('insight-mode-radio', 'value'),
+        State('insight-mode-radio', 'value'), # New state
         prevent_initial_call=True
     )
     def generate_report(n_clicks, selected_graphs, selected_data, filters, insight_mode):
@@ -482,6 +399,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
 
         payload = {"charts": charts_payload}
 
+        # Define prompts based on the selected insight mode
         prompt_individual = (
             "You are a data analyst. I will provide multiple chart datasets as JSON.\n"
             "Need to be detailed"
@@ -504,7 +422,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             "### Overall Summary\n"
             "- A brief, high-level summary of the key findings from all charts combined (2-3 sentences).\n"
             "### Cross-Chart Insights\n"
-            "- 3-5 bullet points identifying trends, correlations, or discrepancies *between* the different datasets.\n"
+            "- 3-5 bullet points identifying trends, correlations, or discrepancies *between* the different datasets. (e.g., 'The spike in total registrations in week X corresponds with a significant market share increase for Outlet Category Y.')\n"
             "### Key Outliers or Notables\n"
             "- Mention any significant outliers or data points that stand out when considering the data as a whole.\n"
             "### Strategic Recommendation\n"
@@ -542,6 +460,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             dcc.Markdown(llm_text or "_No content returned._", link_target="_blank")
         ])
 
+
     # ----- Filter controller: click-to-filter, toggle off by clicking again -----
     @app.callback(
         Output('filter-store', 'data'),
@@ -550,7 +469,6 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         Output('outlet-category-filter', 'value'),
         Output('region-filter', 'value'),
         Output('customer-category-filter', 'value'),
-
         Input('reset-button', 'n_clicks'),
         Input('week-filter', 'value'),
         Input('outlet-category-filter', 'value'),
@@ -561,12 +479,6 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         Input('graph-q3', 'clickData'),
         Input('graph-q4', 'clickData'),
         Input('graph-q5', 'clickData'),
-        Input('t2-graph-q1', 'clickData'),
-        Input('t2-graph-q2', 'clickData'),
-        Input('t2-graph-q3', 'clickData'),
-        Input('t2-graph-q4a', 'clickData'),
-        Input('t2-graph-q4b', 'clickData'),
-
         State('filter-store', 'data'),
         State('active-selection', 'data'),
         prevent_initial_call=True
@@ -574,7 +486,6 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
     def update_filters_and_ui(
         reset_clicks, weeks, outlet_cats, regions, customer_cats,
         click_q1, click_q2, click_q3, click_q4, click_q5,
-        click_t2_q1, click_t2_q2, click_t2_q3, click_t2_q4a, click_t2_q4b,
         current_filters, active_selection
     ):
         def make_key(graph_id, point):
@@ -591,26 +502,6 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             if graph_id == 'graph-q5': return f"q5|customer={point['x']}|outlet={_cd(point)}"
             return None
 
-        def make_key_t2(graph_id, point):
-            def _cd(p, i=0, default=None):
-                try:
-                    return p.get('customdata', [default])[i]
-                except Exception:
-                    return default
-
-            if graph_id == 't2-graph-q1':
-                return f"t2q1|week={point['x']}"
-            if graph_id == 't2-graph-q2':
-                return f"t2q2|week={point['x']}|outlet={_cd(point)}"
-            if graph_id == 't2-graph-q3':
-                # heatmap: x=service_type, y=outlet_category
-                return f"t2q3|service={point['x']}|outlet={point['y']}"
-            if graph_id == 't2-graph-q4a':
-                return f"t2q4a|label={point.get('y')}"
-            if graph_id == 't2-graph-q4b':
-                return f"t2q4b|state={point['x']}|region={_cd(point)}"
-            return None
-
         trig = ctx.triggered[0]
         trig_id = trig['prop_id'].split('.')[0]
 
@@ -625,46 +516,6 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             new_filters['customer_categories'] = customer_cats or []
             return (new_filters, None, new_filters['weeks'], new_filters['outlet_categories'],
                     new_filters['regions'], new_filters['customer_categories'])
-
-        if trig_id.startswith('t2-graph-') and trig.get('value'):
-            point = trig['value']['points'][0]
-            key = make_key_t2(trig_id, point)
-
-            if active_selection == key:
-                return default_filters, None, [], [], [], []
-
-            new_filters = default_filters.copy()
-
-            if trig_id == 't2-graph-q1':
-                new_filters['weeks'] = [point['x']]
-            elif trig_id == 't2-graph-q2':
-                new_filters['weeks'] = [point['x']]
-                oc = None
-                try:
-                    oc = point['customdata'][0]
-                except Exception:
-                    pass
-                if oc:
-                    new_filters['outlet_categories'] = [oc]
-            elif trig_id == 't2-graph-q3':
-                new_filters['service_types'] = [point['x']]
-                new_filters['outlet_categories'] = [point['y']]
-            elif trig_id == 't2-graph-q4a':
-                # no-op unless you add customdata; leave filters as-is
-                pass
-            elif trig_id == 't2-graph-q4b':
-                new_filters['states'] = [point['x']]
-                try:
-                    reg = point['customdata'][0]
-                    if reg:
-                        new_filters['regions'] = [reg]
-                except Exception:
-                    pass
-
-            return (new_filters, key, new_filters.get('weeks', []),
-                    new_filters.get('outlet_categories', []),
-                    new_filters.get('regions', []),
-                    new_filters.get('customer_categories', []))
 
         if trig_id.startswith('graph-') and trig.get('value'):
             point = trig['value']['points'][0]
@@ -689,10 +540,8 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                 new_filters['customer_categories'] = [point['x']]
                 new_filters['outlet_categories'] = [point['customdata'][0]]
 
-            return (new_filters, key, new_filters.get('weeks', []),
-                    new_filters.get('outlet_categories', []),
-                    new_filters.get('regions', []),
-                    new_filters.get('customer_categories', []))
+            return (new_filters, key, new_filters.get('weeks', []), new_filters.get('outlet_categories', []),
+                    new_filters.get('regions', []), new_filters.get('customer_categories', []))
 
         return (current_filters, active_selection, current_filters.get('weeks', []),
                 current_filters.get('outlet_categories', []), current_filters.get('regions', []),
@@ -721,7 +570,9 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         fig_q1 = px.line(
             df_q1, x='week_number', y='total_registrations', title=GRAPH_LABELS['q1'], markers=True
         ).update_layout(uirevision='constant')
+        # Apply new theme color to the line chart
         fig_q1.update_traces(marker_color=base_palette[0], line_color=base_palette[0])
+
 
         fig_q2 = create_fig(
             df_q2_plot, 'week_number', 'market_share_plot', 'outlet_category',
@@ -825,219 +676,13 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
 
         return selected_graphs, selected_data, info
 
-    # ----- Tab 2: figures (q1–q4b) -----
-    @app.callback(
-        Output('t2-graph-q1', 'figure'),
-        Output('t2-graph-q2', 'figure'),
-        Output('t2-graph-q3', 'figure'),
-        Output('t2-graph-q4a', 'figure'),
-        Output('t2-graph-q4b', 'figure'),
-        Input('filter-store', 'data')
-    )
-    def update_tab2_figures(filters):
-        df1, df2, df3, df4 = get_filtered_frames_tab2(filters)
-
-        # --- q1: Weekly Trends (bar + 2 lines, dual y) ---
-        fig_q1 = make_subplots(specs=[[{"secondary_y": True}]])
-        if not df1.empty:
-            x = df1.get('week_number')
-            total = df1.get('total_registrations')
-            avg_days = df1.get('avg_processing_days')
-            fast_rate = df1.get('fast_processing_rate_percent')
-
-            if total is not None:
-                fig_q1.add_trace(go.Bar(name='Total Registrations', x=x, y=total,
-                                        marker_color=t2_palette[0]),
-                                 secondary_y=False)
-            if avg_days is not None:
-                fig_q1.add_trace(go.Scatter(name='Avg Processing Days', x=x, y=avg_days,
-                                            mode='lines+markers', marker=dict(size=6),
-                                            line=dict(width=2, color=t2_palette[3])),
-                                 secondary_y=True)
-            if fast_rate is not None:
-                fig_q1.add_trace(go.Scatter(name='Fast Processing %', x=x, y=fast_rate,
-                                            mode='lines+markers', marker=dict(size=6),
-                                            line=dict(width=2, dash='dash', color=t2_palette[4])),
-                                 secondary_y=True)
-
-        fig_q1.update_layout(title='Weekly Trends',
-                             barmode='group', uirevision='t2_constant',
-                             hovermode='x unified')
-        fig_q1.update_yaxes(title_text="Registrations", secondary_y=False)
-        fig_q1.update_yaxes(title_text="Days / %", secondary_y=True)
-
-        # --- q2: Outlet Category Performance by Week (grouped bars) ---
-        if not df2.empty:
-            df2_plot = df2.copy()
-            if 'registrations' not in df2_plot.columns and 'total_registrations' in df2_plot.columns:
-                df2_plot['registrations'] = df2_plot['total_registrations']
-            fig_q2 = px.bar(
-                df2_plot, x='week_number', y='registrations', color='outlet_category',
-                barmode='group', title='Outlet Category Performance by Week',
-                custom_data=['outlet_category']
-            )
-            fig_q2.update_layout(uirevision='t2_constant')
-        else:
-            fig_q2 = go.Figure().update_layout(title='Outlet Category Performance by Week')
-
-        # --- q3: Outlet Category × Service Type (heatmap on registrations or fallback metric) ---
-        if not df3.empty and {'outlet_category', 'service_type'}.issubset(df3.columns):
-            zcol = 'registrations'
-            if zcol not in df3.columns:
-                zcol = next((c for c in ['avg_processing_days', 'fast_processing_rate_percent',
-                                         'avg_data_completeness_percent'] if c in df3.columns), None)
-            if zcol:
-                pivot = df3.pivot_table(index='outlet_category', columns='service_type',
-                                        values=zcol, aggfunc='sum', fill_value=0)
-                fig_q3 = go.Figure(data=go.Heatmap(
-                    z=pivot.values, x=pivot.columns.astype(str), y=pivot.index.astype(str),
-                    coloraxis="coloraxis"
-                ))
-                fig_q3.update_layout(
-                    title=f'Outlet Category × Service Type ({zcol})',
-                    coloraxis=dict(colorbar=dict(title=zcol)),
-                    uirevision='t2_constant'
-                )
-            else:
-                fig_q3 = go.Figure().update_layout(title='Outlet Category × Service Type')
-        else:
-            fig_q3 = go.Figure().update_layout(title='Outlet Category × Service Type')
-
-        # --- q4a: Efficiency ranking (Top N) ---
-        fig_q4a = go.Figure()
-        if not df4.empty:
-            df4a = df4.copy()
-            label_col = None
-            for cand in ['sales_center_name', 'sales_center_code', 'state']:
-                if cand in df4a.columns:
-                    label_col = cand
-                    break
-            score_col = None
-            if 'fast_processing_rate_percent' in df4a.columns:
-                score_col = 'fast_processing_rate_percent'
-                df4a = df4a.sort_values(score_col, ascending=False)
-            elif 'avg_processing_days' in df4a.columns:
-                score_col = 'avg_processing_days'
-                df4a = df4a.sort_values(score_col, ascending=True)
-            elif 'registrations' in df4a.columns:
-                score_col = 'registrations'
-                df4a = df4a.sort_values(score_col, ascending=False)
-
-            if label_col and score_col:
-                fig_q4a = px.bar(
-                    df4a, y=label_col, x=score_col, orientation='h',
-                    color=df4a.get('outlet_category') if 'outlet_category' in df4a.columns else None,
-                    title='Efficiency Ranking (Top N)',
-                )
-                fig_q4a.update_layout(yaxis=dict(autorange='reversed'), uirevision='t2_constant')
-            else:
-                fig_q4a.update_layout(title='Efficiency Ranking (Top N)')
-        else:
-            fig_q4a.update_layout(title='Efficiency Ranking (Top N)')
-
-        # --- q4b: Regional/State distribution (bar) ---
-        fig_q4b = go.Figure().update_layout(title='Regional / State Distribution')
-
-        if not df4.empty:
-            region_col = 'region' if 'region' in df4.columns else None
-            state_col  = 'state'  if 'state'  in df4.columns else None
-
-            # Try these metrics in order; fall back to row counts if none found
-            candidate_metrics = [
-                'registrations',
-                'outlets_active',
-                'total_registrations',
-                'active_outlets',
-                'count',
-                'n'
-            ]
-            metric = next((c for c in candidate_metrics if c in df4.columns), None)
-
-            def group_sum(df, by_cols, metric_name):
-                if metric_name:
-                    g = (df.groupby(by_cols, dropna=False)[metric_name]
-                           .sum()
-                           .reset_index())
-                else:
-                    # fallback: count rows
-                    g = (df.groupby(by_cols, dropna=False)
-                           .size()
-                           .reset_index(name='rows'))
-                return g
-
-            if region_col and state_col:
-                grp = group_sum(df4, [region_col, state_col], metric)
-                ycol = metric if metric else 'rows'
-                fig_q4b = px.bar(
-                    grp, x=state_col, y=ycol, color=region_col,
-                    title='Regional / State Distribution',
-                    custom_data=[region_col] if region_col in grp.columns else None
-                )
-                fig_q4b.update_layout(xaxis={'categoryorder': 'total descending'}, uirevision='t2_constant')
-
-            elif state_col:  # only state available
-                grp = group_sum(df4, [state_col], metric)
-                ycol = metric if metric else 'rows'
-                fig_q4b = px.bar(
-                    grp, x=state_col, y=ycol,
-                    title='State Distribution'
-                )
-                fig_q4b.update_layout(xaxis={'categoryorder': 'total descending'}, uirevision='t2_constant')
-
-            elif region_col:  # only region available
-                grp = group_sum(df4, [region_col], metric)
-                ycol = metric if metric else 'rows'
-                fig_q4b = px.bar(
-                    grp, x=region_col, y=ycol,
-                    title='Regional Distribution'
-                )
-                fig_q4b.update_layout(xaxis={'categoryorder': 'total descending'}, uirevision='t2_constant')
-
-            else:
-                # no region/state at all -> try by center name/code, else do nothing
-                label_col = next((c for c in ['sales_center_name', 'sales_center_code'] if c in df4.columns), None)
-                if label_col:
-                    if not metric:
-                        # make a metric from counts
-                        grp = (df4.groupby([label_col], dropna=False)
-                                 .size()
-                                 .reset_index(name='rows')
-                                 .sort_values('rows', ascending=False)
-                                 .head(20))
-                        fig_q4b = px.bar(grp, x=label_col, y='rows', title='Distribution by Center')
-                    else:
-                        grp = (df4.groupby([label_col], dropna=False)[metric]
-                                 .sum()
-                                 .reset_index()
-                                 .sort_values(metric, ascending=False)
-                                 .head(20))
-                        fig_q4b = px.bar(grp, x=label_col, y=metric, title='Distribution by Center')
-                    fig_q4b.update_layout(uirevision='t2_constant')
-
-
-        return fig_q1, fig_q2, fig_q3, fig_q4a, fig_q4b
-
-    # ----- Tab 3: JSON snapshot -----
-    @app.callback(
-        Output('tab3-json', 'value'),
-        Input('selected-data', 'data')
-    )
-    def update_tab3_json(selected_data):
-        if not selected_data:
-            return "{}"
-        try:
-            return json.dumps(selected_data, indent=2, ensure_ascii=False)
-        except Exception:
-            return str(selected_data)
-
     return app
 
 
 if __name__ == '__main__':
     try:
         data_dict = get_tab1_results()
-        data_dict_tab2 = get_tab2_results()            # <-- new
-        app = create_dashboard(data_dict, data_dict_tab2, None)
+        app = create_dashboard(data_dict)
         app.run(debug=True, port=8090)
     except ImportError:
         print("Error: Could not import 'get_tab1_results' from 'data_layer.tab_1'.")
