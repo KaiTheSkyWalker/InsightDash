@@ -1,5 +1,7 @@
 import dash
-from dash import dcc, html, Input, Output, State, ctx
+import re
+from dash import dcc, html, Input, Output, State, ctx, no_update
+from dash import dash_table
 from dash.exceptions import PreventUpdate
 import pandas as pd
 import json
@@ -199,6 +201,18 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                                     children=[html.Div("No charts selected yet.", style={'color': '#6b7280', 'fontSize': '13px'})],
                                     style={'margin': '4px 0 0 0'}
                                 ),
+                                html.Button(
+                                    'Clear Selection',
+                                    id='clear-selection',
+                                    n_clicks=0,
+                                    style={
+                                        'width': '100%', 'padding': '10px', 'marginTop': '6px',
+                                        'backgroundColor': '#e5e7eb', 'color': '#111827', 'border': '1px solid #d1d5db',
+                                        'borderRadius': '8px', 'cursor': 'pointer'
+                                    }
+                                ),
+
+                                # LLM data scope removed; always use full data for analysis
 
                                 # Insight mode selector
                                 html.Div([
@@ -264,7 +278,8 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         if new_visibility:
             # OPENING
             if not opened_once:
-                panel_style = {'height': '100vh', 'backgroundColor': '#f8f9fa', 'width': '200px'}
+                # First open at 25% of the screen width
+                panel_style = {'height': '100vh', 'backgroundColor': '#f8f9fa', 'width': '25%'}
                 new_store = {'visible': True, 'opened_once': True}
             else:
                 panel_style = {'height': '100vh', 'backgroundColor': '#f8f9fa'}
@@ -300,9 +315,24 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         def label(gid):
             return GRAPH_LABELS.get(gid, gid)
 
+        # Backward compatibility: prefer full data; fall back to legacy or chart
+        def pick_meta(meta_obj):
+            if not isinstance(meta_obj, dict):
+                return None
+            # legacy flat structure
+            if "columns" in meta_obj and "records" in meta_obj:
+                return meta_obj
+            # prefer full, then chart
+            if 'full' in meta_obj and isinstance(meta_obj['full'], dict):
+                return meta_obj['full']
+            if 'chart' in meta_obj and isinstance(meta_obj['chart'], dict):
+                return meta_obj['chart']
+            return None
+
         charts_payload = []
         for gid in selected_graphs:
-            meta = (selected_data or {}).get(gid)
+            meta_all = (selected_data or {}).get(gid)
+            meta = pick_meta(meta_all)
             if not meta:
                 continue
             charts_payload.append({
@@ -324,7 +354,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
 
         prompt_individual = (
             "You are a data analyst. I will provide multiple chart datasets as JSON.\n"
-            "Need to be detailed"
+            "Return plain markdown only (no code fences). Be specific and data-driven.\n"
             "For each chart, return concise markdown:\n"
             "### <Chart Title>\n"
             "- **Overview** (1–2 sentences)\n"
@@ -338,7 +368,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
 
         prompt_combined = (
             "You are a senior data analyst. I will provide datasets for multiple charts as JSON.\n"
-            "Your task is to synthesize these datasets to create a holistic overview. "
+            "Return plain markdown only (no code fences). Synthesize the data across charts.\n"
             "Instead of analyzing each chart in isolation, focus on the connections, correlations, and combined story they tell.\n\n"
             "Provide your analysis in concise markdown with the following structure:\n"
             "### Overall Summary\n"
@@ -363,9 +393,69 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                 html.P(f"LLM error: {err}")
             ])
 
+        # Some models wrap the entire response in triple backticks, causing it to
+        # render as a code block instead of markdown. Strip a single outer fence.
+        def _unwrap_code_fence(s: str | None) -> str:
+            if not s:
+                return ""
+            text = s.strip()
+            m = re.match(r"^```(?:[a-zA-Z0-9_-]+)?\s*\n(.*)\n```$", text, flags=re.S)
+            if m:
+                return m.group(1).strip()
+            # Fallback: leading fence only
+            if text.startswith("```") and text.count("```") >= 2:
+                first_close = text.find("```", 3)
+                if first_close != -1:
+                    inner = text[3:first_close]
+                    rest = text[first_close+3:].strip()
+                    if not rest:
+                        return inner.strip()
+            return text
+
+        cleaned = _unwrap_code_fence(llm_text)
+
+        # ---- Evidence Panel (render chosen scope for alignment) ----
+        def evidence_table(meta):
+            cols = [{"name": str(c), "id": str(c)} for c in (meta.get('columns') or [])]
+            data = list(meta.get('records') or [])
+            return dash_table.DataTable(
+                columns=cols,
+                data=data,
+                page_size=10,
+                sort_action="native",
+                filter_action="native",
+                style_table={'overflowX': 'auto', 'marginTop': '6px', 'maxHeight': '40vh', 'overflowY': 'auto', 'border': '1px solid #e5e7eb', 'borderRadius': '8px'},
+                style_cell={'fontFamily': 'Roboto, sans-serif', 'fontSize': 12, 'padding': '8px', 'whiteSpace': 'normal', 'height': 'auto', 'textAlign': 'left'},
+                style_header={'fontWeight': 'bold', 'backgroundColor': '#f3f4f6', 'borderBottom': '1px solid #e5e7eb'},
+                style_data_conditional=[{'if': {'row_index': 'odd'}, 'backgroundColor': '#fafafa'}],
+                fixed_rows={'headers': True},
+                style_as_list_view=True,
+            )
+
+        ev_sections = []
+        for gid in selected_graphs:
+            meta_all = (selected_data or {}).get(gid) or {}
+            meta = pick_meta(meta_all)
+            if not meta:
+                continue
+            ev_sections.append(
+                html.Details([
+                    html.Summary(f"{label(gid)} — Full data — {meta.get('n_rows', 0)} rows"),
+                    evidence_table(meta)
+                ], open=False, style={'marginTop': '8px'})
+            )
+
+        evidence = html.Div([
+            html.Hr(),
+            html.H4("Evidence Review", style={'color': '#374151'}),
+            html.P("Data used for the analysis (limited preview).", style={'color': '#6b7280', 'fontSize': '12px'}),
+            html.Div(ev_sections)
+        ])
+
         return html.Div([
             html.H4("Generated Report", style={'color': '#007bff'}),
-            dcc.Markdown(llm_text or "_No content returned._", link_target="_blank")
+            dcc.Markdown(cleaned or "_No content returned._", link_target="_blank"),
+            evidence
         ])
 
     # ----- Filter controller: click-to-filter, toggle off by clicking again -----
@@ -617,6 +707,8 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         Input('btn-select-t3-3', 'n_clicks'),
         Input('btn-select-t3-4', 'n_clicks'),
         Input('btn-select-t3-5', 'n_clicks'),
+        # Clear selection button in sidebar
+        Input('clear-selection', 'n_clicks'),
         # States
         State('filter-store', 'data'),
         State('tab3-filter-store', 'data'),
@@ -629,6 +721,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             btn1, btn2, btn3, btn4, btn5,
             t2b1, t2b2, t2b3, t2b4a, t2b4b,
             t3b1, t3b2, t3b3, t3b4, t3b5,
+            clear_btn,
             filters, tab3_local, selected_graphs, selected_data
         ) = args
         triggered = ctx.triggered_id
@@ -638,43 +731,59 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         selected_graphs = list(selected_graphs or [])
         selected_data = dict(selected_data or {})
 
+        # Clear selection request from sidebar
+        if triggered == 'clear-selection':
+            info = html.Div("No charts selected yet.", style={'color': '#6b7280', 'fontSize': '13px'})
+            return [], {}, info
+
         # Helper to add/remove
-        def toggle(graph_id: str, df):
+        def toggle(graph_id: str, df_full, df_chart):
             nonlocal selected_graphs, selected_data
             if graph_id in selected_graphs:
                 selected_graphs = [g for g in selected_graphs if g != graph_id]
                 selected_data.pop(graph_id, None)
             else:
                 selected_graphs.append(graph_id)
-                selected_data[graph_id] = pack_df(df)
+                selected_data[graph_id] = {
+                    'full': pack_df(df_full),
+                    'chart': pack_df(df_chart),
+                }
 
-        # Tab 1 mapping
+        # Tab 1 mapping (store UNFILTERED datasets for LLM)
         if triggered.startswith('btn-select-q'):
-            df_q1, df_q2_plot, df_q3_plot, df_q4_plot, df_q5_plot = t1_get_filtered_frames(data_dict, filters or {})
+            # Build both full (unfiltered) and chart (current-filtered) datasets
+            df_q1_full, df_q2_full, df_q3_full, df_q4_full, df_q5_full = t1_get_filtered_frames(data_dict, {})
+            df_q1_chart, df_q2_chart, df_q3_chart, df_q4_chart, df_q5_chart = t1_get_filtered_frames(data_dict, filters or {})
             id_map = {
-                'btn-select-q1': ('q1', df_q1),
-                'btn-select-q2': ('q2', df_q2_plot),
-                'btn-select-q3': ('q3', df_q3_plot),
-                'btn-select-q4': ('q4', df_q4_plot),
-                'btn-select-q5': ('q5', df_q5_plot),
+                'btn-select-q1': ('q1', df_q1_full, df_q1_chart),
+                'btn-select-q2': ('q2', df_q2_full, df_q2_chart),
+                'btn-select-q3': ('q3', df_q3_full, df_q3_chart),
+                'btn-select-q4': ('q4', df_q4_full, df_q4_chart),
+                'btn-select-q5': ('q5', df_q5_full, df_q5_chart),
             }
-            gid, df = id_map[triggered]
-            toggle(gid, df)
-        # Tab 2 mapping
+            gid, df_full, df_chart = id_map[triggered]
+            toggle(gid, df_full, df_chart)
+        # Tab 2 mapping (store UNFILTERED datasets for LLM)
         elif triggered.startswith('btn-select-t2-'):
-            q1_t2, q2_t2, q3_t2, q4_t2 = t2_get_filtered_frames(tab2, filters or {})
+            # Build both full (unfiltered) and chart (current-filtered) datasets
+            q1_t2_full, q2_t2_full, q3_t2_full, q4_t2_full = t2_get_filtered_frames(tab2, {})
+            q1_t2_chart, q2_t2_chart, q3_t2_chart, q4_t2_chart = t2_get_filtered_frames(tab2, filters or {})
             id_map2 = {
-                'btn-select-t2-q1': ('t2-graph-q1', q1_t2),
-                'btn-select-t2-q2': ('t2-graph-q2', q2_t2),
-                'btn-select-t2-q3': ('t2-graph-q3', q3_t2),
-                'btn-select-t2-q4a': ('t2-graph-q4a', q4_t2),
-                'btn-select-t2-q4b': ('t2-graph-q4b', q4_t2),
+                'btn-select-t2-q1': ('t2-graph-q1', q1_t2_full, q1_t2_chart),
+                'btn-select-t2-q2': ('t2-graph-q2', q2_t2_full, q2_t2_chart),
+                'btn-select-t2-q3': ('t2-graph-q3', q3_t2_full, q3_t2_chart),
+                'btn-select-t2-q4a': ('t2-graph-q4a', q4_t2_full, q4_t2_chart),
+                'btn-select-t2-q4b': ('t2-graph-q4b', q4_t2_full, q4_t2_chart),
             }
-            gid, df = id_map2[triggered]
-            toggle(gid, df)
-        # Tab 3 mapping
+            gid, df_full, df_chart = id_map2[triggered]
+            toggle(gid, df_full, df_chart)
+        # Tab 3 mapping (store UNFILTERED datasets for LLM)
         else:
-            # Merge global + local filters similar to update_tab3_figures
+            # Build both full (unfiltered) and chart (global+local filtered) datasets
+            q1_t3_full, q2_t3_full, q3_t3_full, q4_t3_full = t3_get_filtered_frames(data_dict_3 or {}, {})
+            m_t3_full = merged_for_chart2(q2_t3_full, q3_t3_full)
+
+            # Merge global and local filters for chart scope
             gf = filters or {}
             lf = tab3_local or {}
             def combine(a, b):
@@ -693,17 +802,17 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                 'regions': list(gf.get('regions', [])),
                 'states': list(gf.get('states', [])),
             }
-            q1_t3, q2_t3, q3_t3, q4_t3 = t3_get_filtered_frames(data_dict_3 or {}, merged)
-            m_t3 = merged_for_chart2(q2_t3, q3_t3)
+            q1_t3_chart, q2_t3_chart, q3_t3_chart, q4_t3_chart = t3_get_filtered_frames(data_dict_3 or {}, merged)
+            m_t3_chart = merged_for_chart2(q2_t3_chart, q3_t3_chart)
             id_map3 = {
-                'btn-select-t3-1': ('t3-graph-1', q2_t3),
-                'btn-select-t3-2': ('t3-graph-2', m_t3),
-                'btn-select-t3-3': ('t3-graph-3', q3_t3),
-                'btn-select-t3-4': ('t3-graph-4', q3_t3),
-                'btn-select-t3-5': ('t3-graph-5', q4_t3),
+                'btn-select-t3-1': ('t3-graph-1', q2_t3_full, q2_t3_chart),
+                'btn-select-t3-2': ('t3-graph-2', m_t3_full, m_t3_chart),
+                'btn-select-t3-3': ('t3-graph-3', q3_t3_full, q3_t3_chart),
+                'btn-select-t3-4': ('t3-graph-4', q3_t3_full, q3_t3_chart),
+                'btn-select-t3-5': ('t3-graph-5', q4_t3_full, q4_t3_chart),
             }
-            gid, df = id_map3[triggered]
-            toggle(gid, df)
+            gid, df_full, df_chart = id_map3[triggered]
+            toggle(gid, df_full, df_chart)
 
         def label(gid):
             return GRAPH_LABELS.get(gid, gid)
@@ -737,6 +846,167 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         ])
 
         return selected_graphs, selected_data, info
+
+    # ----- View-underlying-data tables (inline) -----
+    @app.callback(
+        # Tab 1 tables
+        Output('table-q1', 'children'),
+        Output('table-q2', 'children'),
+        Output('table-q3', 'children'),
+        Output('table-q4', 'children'),
+        Output('table-q5', 'children'),
+        # Tab 2 tables
+        Output('table-t2-q1', 'children'),
+        Output('table-t2-q2', 'children'),
+        Output('table-t2-q3', 'children'),
+        Output('table-t2-q4a', 'children'),
+        Output('table-t2-q4b', 'children'),
+        # Tab 3 tables
+        Output('table-t3-1', 'children'),
+        Output('table-t3-2', 'children'),
+        Output('table-t3-3', 'children'),
+        Output('table-t3-4', 'children'),
+        Output('table-t3-5', 'children'),
+
+        # Inputs: all view buttons
+        Input('btn-view-q1', 'n_clicks'),
+        Input('btn-view-q2', 'n_clicks'),
+        Input('btn-view-q3', 'n_clicks'),
+        Input('btn-view-q4', 'n_clicks'),
+        Input('btn-view-q5', 'n_clicks'),
+        Input('btn-view-t2-q1', 'n_clicks'),
+        Input('btn-view-t2-q2', 'n_clicks'),
+        Input('btn-view-t2-q3', 'n_clicks'),
+        Input('btn-view-t2-q4a', 'n_clicks'),
+        Input('btn-view-t2-q4b', 'n_clicks'),
+        Input('btn-view-t3-1', 'n_clicks'),
+        Input('btn-view-t3-2', 'n_clicks'),
+        Input('btn-view-t3-3', 'n_clicks'),
+        Input('btn-view-t3-4', 'n_clicks'),
+        Input('btn-view-t3-5', 'n_clicks'),
+
+        # States: filters
+        State('filter-store', 'data'),
+        State('tab3-filter-store', 'data'),
+        # States: current table contents for toggling
+        State('table-q1', 'children'),
+        State('table-q2', 'children'),
+        State('table-q3', 'children'),
+        State('table-q4', 'children'),
+        State('table-q5', 'children'),
+        State('table-t2-q1', 'children'),
+        State('table-t2-q2', 'children'),
+        State('table-t2-q3', 'children'),
+        State('table-t2-q4a', 'children'),
+        State('table-t2-q4b', 'children'),
+        State('table-t3-1', 'children'),
+        State('table-t3-2', 'children'),
+        State('table-t3-3', 'children'),
+        State('table-t3-4', 'children'),
+        State('table-t3-5', 'children'),
+        prevent_initial_call=True
+    )
+    def show_underlying_tables(
+        vq1, vq2, vq3, vq4, vq5,
+        vt2q1, vt2q2, vt2q3, vt2q4a, vt2q4b,
+        vt3_1, vt3_2, vt3_3, vt3_4, vt3_5,
+        filters, tab3_local,
+        tq1, tq2, tq3, tq4, tq5,
+        tt2q1, tt2q2, tt2q3, tt2q4a, tt2q4b,
+        tt3_1, tt3_2, tt3_3, tt3_4, tt3_5
+    ):
+        triggered = ctx.triggered_id
+        if triggered is None:
+            raise PreventUpdate
+
+        # Helper: build a DataTable from a DataFrame
+        def table_from_df(df):
+            import pandas as pd  # local import to avoid global dependency if not used elsewhere
+            if df is None or isinstance(df, pd.DataFrame) and df.empty:
+                return html.Div("No data to display.", style={'color': '#6b7280', 'fontSize': '13px', 'marginTop': '6px'})
+            # Limit rows for UI responsiveness
+            try:
+                df = df.head(300)
+            except Exception:
+                pass
+            columns = [{"name": str(c), "id": str(c)} for c in df.columns]
+            return dash_table.DataTable(
+                columns=columns,
+                data=df.to_dict('records'),
+                page_size=10,
+                sort_action="native",
+                filter_action="native",
+                style_table={'overflowX': 'auto', 'marginTop': '6px', 'maxHeight': '50vh', 'overflowY': 'auto', 'border': '1px solid #e5e7eb', 'borderRadius': '8px'},
+                style_cell={'fontFamily': 'Roboto, sans-serif', 'fontSize': 12, 'padding': '8px', 'whiteSpace': 'normal', 'height': 'auto', 'textAlign': 'left'},
+                style_header={'fontWeight': 'bold', 'backgroundColor': '#f3f4f6', 'borderBottom': '1px solid #e5e7eb'},
+                style_data_conditional=[
+                    {'if': {'row_index': 'odd'}, 'backgroundColor': '#fafafa'},
+                ],
+                fixed_rows={'headers': True},
+                style_as_list_view=True,
+            )
+
+        # Defaults: no update for all outputs
+        out = [no_update] * 15
+
+        # Resolve filtered frames based on which section triggered
+        if triggered.startswith('btn-view-q'):
+            # Tab 1 filtered frames (include plotted variants)
+            df_q1, df_q2_plot, df_q3_plot, df_q4_plot, df_q5_plot = t1_get_filtered_frames(data_dict, filters or {})
+            id_map = {
+                'btn-view-q1': (0, df_q1, tq1),
+                'btn-view-q2': (1, df_q2_plot, tq2),
+                'btn-view-q3': (2, df_q3_plot, tq3),
+                'btn-view-q4': (3, df_q4_plot, tq4),
+                'btn-view-q5': (4, df_q5_plot, tq5),
+            }
+            idx, df, cur = id_map[triggered]
+            out[idx] = None if cur else table_from_df(df)
+        elif triggered.startswith('btn-view-t2-'):
+            # Tab 2 filtered frames (long-form datasets)
+            q1_t2, q2_t2, q3_t2, q4_t2 = t2_get_filtered_frames(tab2, filters or {})
+            id_map2 = {
+                'btn-view-t2-q1': (5, q1_t2, tt2q1),
+                'btn-view-t2-q2': (6, q2_t2, tt2q2),
+                'btn-view-t2-q3': (7, q3_t2, tt2q3),
+                'btn-view-t2-q4a': (8, q4_t2, tt2q4a),
+                'btn-view-t2-q4b': (9, q4_t2, tt2q4b),
+            }
+            idx, df, cur = id_map2[triggered]
+            out[idx] = None if cur else table_from_df(df)
+        else:
+            # Tab 3: merge global + local filters similar to other callbacks
+            gf = filters or {}
+            lf = tab3_local or {}
+            def combine(a, b):
+                la = list(a or [])
+                lb = list(b or [])
+                if la and lb:
+                    sb = set(lb)
+                    return [x for x in la if x in sb]
+                return la or lb
+            merged = {
+                'weeks': combine(gf.get('weeks'), lf.get('weeks')),
+                'outlet_categories': combine(gf.get('outlet_categories'), lf.get('outlet_categories')),
+                'performance_tiers': list(lf.get('performance_tiers', [])),
+                'sales_center_codes': list(lf.get('sales_center_codes', [])),
+                'service_types': list(gf.get('service_types', [])),
+                'regions': list(gf.get('regions', [])),
+                'states': list(gf.get('states', [])),
+            }
+            q1_t3, q2_t3, q3_t3, q4_t3 = t3_get_filtered_frames(data_dict_3 or {}, merged)
+            m_t3 = merged_for_chart2(q2_t3, q3_t3)
+            id_map3 = {
+                'btn-view-t3-1': (10, q2_t3, tt3_1),
+                'btn-view-t3-2': (11, m_t3, tt3_2),
+                'btn-view-t3-3': (12, q3_t3, tt3_3),
+                'btn-view-t3-4': (13, q3_t3, tt3_4),
+                'btn-view-t3-5': (14, q4_t3, tt3_5),
+            }
+            idx, df, cur = id_map3[triggered]
+            out[idx] = None if cur else table_from_df(df)
+
+        return tuple(out)
 
     # ----- Tab 2: figures (q1–q4b) -----
     @app.callback(

@@ -7,10 +7,10 @@ from plotly.subplots import make_subplots
 from utils.colors import base_palette
 
 
-# Palette for Tab 2 visuals
+# Palette for Tab 2 visuals (reference) — high‑contrast blues
 t2_palette = [
-    '#E73489', '#7E32A8', '#49319B', '#3B63C4', '#45B4D3',
-    '#59C3A6', '#F4A261', '#2A9D8F', '#E9C46A', '#264653'
+    '#0B2E4E', '#1E3A8A', '#1D4ED8', '#2563EB', '#3B82F6',
+    '#60A5FA', '#0EA5E9', '#38BDF8', '#0891B2', '#06B6D4'
 ]
 
 
