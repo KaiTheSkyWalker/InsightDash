@@ -6,6 +6,7 @@ from dash.exceptions import PreventUpdate
 import pandas as pd
 import json
 from dash_resizable_panels import PanelGroup, Panel, PanelResizeHandle
+import os
  
 
 from data_layer.tab_1 import get_tab1_results
@@ -14,7 +15,8 @@ from data_layer.tab_3 import get_tab3_results
 from config.settings import GOOGLE_API_KEY, MODEL_NAME
 from services.llm import generate_markdown_from_prompt
 from utils.data import uniq, pack_df
-from utils.colors import color_map_from_list, base_palette, tier_color_map
+from utils.colors import color_map_from_list, base_palette, tier_color_map, diverse_palette
+import plotly.io as pio
 from app_tabs.tab1.layout import get_layout as tab1_layout
 from app_tabs.tab2.layout import get_layout as tab2_layout
 from app_tabs.tab3.layout import get_layout as tab3_layout
@@ -27,7 +29,6 @@ from config.logging import configure_logging
 
 # Configure logging early so all modules use the same sink
 configure_logging()
-tab3_logger = logger.bind(tab="Tab3")
 
 """
 Configuration and LLM are now centralized in config.settings and services.llm.
@@ -39,56 +40,93 @@ MODEL_NAME and GOOGLE_API_KEY are imported from settings.
 external_stylesheets = ['https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap']
 
 
+def _ensure_tab1_defaults(data_dict: dict | None) -> dict:
+    """Ensure Tab 1 dict has q1..q5 DataFrames with required columns.
+
+    Prevents KeyError in layouts when DB is unavailable by providing
+    empty frames with the expected schema.
+    """
+    d = dict(data_dict or {})
+    def ensure_df(df, cols):
+        if isinstance(df, pd.DataFrame):
+            out = df.copy()
+            for c in cols:
+                if c not in out.columns:
+                    out[c] = None
+            return out
+        return pd.DataFrame(columns=cols)
+
+    # Align to sql_queries.sheet1 output columns
+    return {
+        'q1': ensure_df(d.get('q1'), ['rgn', 'total_outlets', 'avg_total_score', 'avg_national_rank', 'avg_regional_rank']),
+        'q2': ensure_df(d.get('q2'), ['outlet_category', 'avg_total_score', 'avg_new_car_reg', 'avg_intake_units', 'avg_revenue_performance']),
+        'q3': ensure_df(d.get('q3'), ['rgn', 'outlet_category', 'outlet_count', 'avg_total_score', 'avg_national_rank', 'avg_regional_rank']),
+        'q4': ensure_df(d.get('q4'), ['sales_outlet', 'rgn', 'outlet_category', 'total_score', 'rank_nationwide', 'rank_region', 'new_car_reg_unit', 'intake_unit', 'revenue_pct']),
+        'q5': ensure_df(d.get('q5'), ['sales_outlet', 'rgn', 'outlet_category', 'total_score', 'rank_nationwide', 'rank_region', 'new_car_reg_unit', 'intake_unit', 'revenue_pct']),
+    }
+
+
 def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
     """
     Dash app with cross-filtering, stable colors, multi-chart select,
     and Gemini-based summarizer in a resizable, toggleable sidebar.
     """
-    # local alias for Tab 2 dataset (prevents NameError in inner functions)
+    # local aliases for datasets (prevents NameError in inner functions)
+    tab1 = _ensure_tab1_defaults(data_dict or {})
     tab2 = data_dict_2 or {}
 
     app = dash.Dash(__name__, suppress_callback_exceptions=True, external_stylesheets=external_stylesheets)
 
+    # Set a consistent blue-forward plotly template across all figures
+    pio.templates.default = "plotly_white"
+
     # Helpers moved to utils.data and utils.colors
 
     # ----- Data & filters -----
-    all_weeks = sorted(data_dict['q1']['week_number'].dropna().unique())
-
     all_outlet_categories = sorted(uniq([
-        data_dict.get('q2', pd.DataFrame()).get('outlet_category'),
-        data_dict.get('q3', pd.DataFrame()).get('outlet_category'),
-        data_dict.get('q5', pd.DataFrame()).get('outlet_category'),
+        tab1.get('q2', pd.DataFrame()).get('outlet_category'),
+        tab1.get('q3', pd.DataFrame()).get('outlet_category'),
+        tab1.get('q4', pd.DataFrame()).get('outlet_category'),
+        tab1.get('q5', pd.DataFrame()).get('outlet_category'),
     ]))
 
-    all_regions = sorted(data_dict['q4']['region'].dropna().unique()) if 'region' in data_dict['q4'].columns else []
-    all_customer_categories = sorted(data_dict['q5']['customer_category'].dropna().unique()) if 'customer_category' in data_dict['q5'].columns else []
+    all_regions = sorted(uniq([
+        tab1.get('q1', pd.DataFrame()).get('rgn'),
+        tab1.get('q3', pd.DataFrame()).get('rgn'),
+        tab1.get('q4', pd.DataFrame()).get('rgn'),
+        tab1.get('q5', pd.DataFrame()).get('rgn'),
+    ]))
 
     outlet_color_map = color_map_from_list(all_outlet_categories)
+    scatter_color_map = color_map_from_list(all_outlet_categories, palette=diverse_palette)
     region_color_map = color_map_from_list(all_regions)
 
     default_filters = {
-        'weeks': [], 'outlet_categories': [], 'regions': [],
-        'customer_categories': [], 'service_types': [], 'states': [],
+        'outlet_categories': [],
+        'regions': [],
+        'score_band': 'All',
+        'units_band': 'All',
     }
 
     GRAPH_LABELS = {
-        'q1': 'Weekly Registration Overview',
-        'q2': 'Outlet Category Market Share',
-        'q3': 'Service Type Breakdown (Log Scale)',
-        'q4': 'Regional Registration Distribution (Log Scale)',
-        'q5': 'Customer Category Registrations (Log Scale)',
-        # Tab 2
-        't2-graph-q1': 'Weekly Trends',
-        't2-graph-q2': 'Outlet Category Performance by Week',
-        't2-graph-q3': 'Category × Service Type Heatmap',
-        't2-graph-q4a': 'Efficiency Ranking (Top 15)',
-        't2-graph-q4b': 'Regional / State Distribution',
-        # Tab 3
-        't3-graph-1': 'Weekly Performance Overview',
-        't3-graph-2': 'Efficiency & Value Quadrant',
-        't3-graph-3': 'Sales Centers Performance Tier Contribution',
-        't3-graph-4': 'Top Performers of Sales Centers',
-        't3-graph-5': 'Sales Center Performance (Top)',
+        # Tab 1 (Sheet 1: KPI Overview)
+        'q1': 'Regional Performance (Avg Score)',
+        'q2': 'Outlet Category Averages',
+        'q3': 'Region × Category (Avg Score)',
+        'q4': 'Top Outlets by Score',
+        'q5': 'Bottom Outlets by Score',
+        # Tab 2 (Sheet 2: Efficiency)
+        't2-graph-q1': 'Regional Efficiency Metrics',
+        't2-graph-q2': 'Outlet Category Efficiency Metrics',
+        't2-graph-q3': 'Region × Category (Avg New Car Reg)',
+        't2-graph-q4a': 'Top Outlets by New Car Reg',
+        't2-graph-q4b': 'Outlet Registration% vs NPS',
+        # Tab 3 (Sheet 3: Value & Performance)
+        't3-graph-1': 'Regional Value & Ops Metrics',
+        't3-graph-2': 'Category Value & Ops Metrics',
+        't3-graph-3': 'Region × Category (Quality Index)',
+        't3-graph-4': 'Top Service Outlets by Intake Units',
+        't3-graph-5': 'Service CS% vs QPI% (Outlets)',
     }
 
 
@@ -107,7 +145,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                     children=[
                         html.Div(id='main-content', children=[
                             html.Div([
-                                html.H1("Vehicle Registration Dashboard", style={'textAlign': 'center', 'flex': '1'}),
+                                html.H1("Perodua CR KPI Dashboard", style={'textAlign': 'center', 'flex': '1'}),
                                 html.Button('☰', id='sidebar-toggle-button', n_clicks=0,
                                             style={'height': '36px', 'marginLeft': '20px'}),
                             ], style={'display': 'flex', 'alignItems': 'center', 'justifyContent': 'space-between',
@@ -123,15 +161,11 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                             dcc.Store(id='selected-data', data={}),
                             # Tab 3 dedicated filter store
                             dcc.Store(id='tab3-filter-store', data={
-                                'weeks': [], 'outlet_categories': [], 'performance_tiers': [], 'sales_center_codes': []
+                                'outlet_categories': [], 'sales_center_codes': []
                             }),
 
                             # ---- Filter bar ----
                             html.Div([
-                                html.Div(dcc.Dropdown(
-                                    id='week-filter', placeholder="Select Week(s)",
-                                    options=[{'label': f'Week {w}', 'value': w} for w in all_weeks], multi=True
-                                ), style={'flex': '1', 'margin': '0 10px'}),
                                 html.Div(dcc.Dropdown(
                                     id='outlet-category-filter', placeholder="Select Outlet Category(s)",
                                     options=[{'label': cat, 'value': cat} for cat in all_outlet_categories], multi=True
@@ -141,9 +175,22 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                                     options=[{'label': reg, 'value': reg} for reg in all_regions], multi=True
                                 ), style={'flex': '1', 'margin': '0 10px'}),
                                 html.Div(dcc.Dropdown(
-                                    id='customer-category-filter', placeholder="Select Customer Category(s)",
-                                    options=[{'label': cat, 'value': cat} for cat in all_customer_categories],
-                                    multi=True
+                                    id='score-band-filter', placeholder='Score Band', value='All',
+                                    options=[
+                                        {'label': 'All', 'value': 'All'},
+                                        {'label': '≥ 80', 'value': 'GE80'},
+                                        {'label': '60–79', 'value': '60_79'},
+                                        {'label': '< 60', 'value': 'LT60'},
+                                    ]
+                                ), style={'flex': '1', 'margin': '0 10px'}),
+                                html.Div(dcc.Dropdown(
+                                    id='units-band-filter', placeholder='Units Band', value='All',
+                                    options=[
+                                        {'label': 'All', 'value': 'All'},
+                                        {'label': '≥ 50', 'value': 'GE50'},
+                                        {'label': '20–49', 'value': '20_49'},
+                                        {'label': '< 20', 'value': 'LT20'},
+                                    ]
                                 ), style={'flex': '1', 'margin': '0 10px'}),
                                 html.Button('Reset All Filters', id='reset-button', n_clicks=0,
                                             style={'height': '36px', 'marginLeft': '10px'})
@@ -462,16 +509,16 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
     @app.callback(
         Output('filter-store', 'data'),
         Output('active-selection', 'data'),
-        Output('week-filter', 'value'),
         Output('outlet-category-filter', 'value'),
         Output('region-filter', 'value'),
-        Output('customer-category-filter', 'value'),
+        Output('score-band-filter', 'value'),
+        Output('units-band-filter', 'value'),
 
         Input('reset-button', 'n_clicks'),
-        Input('week-filter', 'value'),
         Input('outlet-category-filter', 'value'),
         Input('region-filter', 'value'),
-        Input('customer-category-filter', 'value'),
+        Input('score-band-filter', 'value'),
+        Input('units-band-filter', 'value'),
         Input('graph-q1', 'clickData'),
         Input('graph-q2', 'clickData'),
         Input('graph-q3', 'clickData'),
@@ -494,7 +541,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         prevent_initial_call=True
     )
     def update_filters_and_ui(
-        reset_clicks, weeks, outlet_cats, regions, customer_cats,
+        reset_clicks, outlet_cats, regions, score_band, units_band,
         click_q1, click_q2, click_q3, click_q4, click_q5,
         click_t2_q1, click_t2_q2, click_t2_q3, click_t2_q4a, click_t2_q4b,
         click_t3_g1, click_t3_g2, click_t3_g3, click_t3_g4, click_t3_g5,
@@ -507,11 +554,13 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                 except Exception:
                     return default
 
-            if graph_id == 'graph-q1': return f"q1|week={point['x']}"
-            if graph_id == 'graph-q2': return f"q2|week={point['x']}|outlet={_cd(point)}"
-            if graph_id == 'graph-q3': return f"q3|service={point['x']}|outlet={_cd(point)}"
-            if graph_id == 'graph-q4': return f"q4|state={point['x']}|region={_cd(point)}"
-            if graph_id == 'graph-q5': return f"q5|customer={point['x']}|outlet={_cd(point)}"
+            if graph_id == 'graph-q1': return f"q1|region={point.get('y')}"
+            if graph_id == 'graph-q2': return f"q2|outlet={point.get('x')}"
+            if graph_id == 'graph-q3': return f"q3|outlet={point.get('x')}|region={point.get('y')}"
+            if graph_id == 'graph-q4':
+                return f"q4|region={_cd(point,0)}|outlet={_cd(point,1)}"
+            if graph_id == 'graph-q5':
+                return f"q5|region={_cd(point,0)}|outlet={_cd(point,1)}"
             return None
 
         def make_key_t2(graph_id, point):
@@ -522,149 +571,150 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                     return default
 
             if graph_id == 't2-graph-q1':
-                return f"t2q1|week={point['x']}"
+                return f"t2q1|region={point.get('x')}"
             if graph_id == 't2-graph-q2':
-                return f"t2q2|week={point['x']}|outlet={_cd(point)}"
+                return f"t2q2|outlet={point.get('x')}"
             if graph_id == 't2-graph-q3':
-                # heatmap: x=service_type, y=outlet_category
-                return f"t2q3|service={point['x']}|outlet={point['y']}"
+                # heatmap: x=outlet_category, y=rgn
+                return f"t2q3|outlet={point.get('x')}|region={point.get('y')}"
             if graph_id == 't2-graph-q4a':
-                return f"t2q4a|label={point.get('y')}"
+                return f"t2q4a|outlet={_cd(point)}"
             if graph_id == 't2-graph-q4b':
-                return f"t2q4b|state={point['x']}|region={_cd(point)}"
+                return f"t2q4b|region={_cd(point,0)}|outlet={_cd(point,1)}"
             return None
 
         trig = ctx.triggered[0]
         trig_id = trig['prop_id'].split('.')[0]
 
         if trig_id == 'reset-button':
-            return default_filters, None, [], [], [], []
+            return default_filters, None, [], [], default_filters['score_band'], default_filters['units_band']
 
-        if trig_id in ('week-filter', 'outlet-category-filter', 'region-filter', 'customer-category-filter'):
+        if trig_id in ('outlet-category-filter', 'region-filter', 'score-band-filter', 'units-band-filter'):
             new_filters = current_filters.copy()
-            new_filters['weeks'] = weeks or []
             new_filters['outlet_categories'] = outlet_cats or []
             new_filters['regions'] = regions or []
-            new_filters['customer_categories'] = customer_cats or []
-            return (new_filters, None, new_filters['weeks'], new_filters['outlet_categories'],
-                    new_filters['regions'], new_filters['customer_categories'])
+            new_filters['score_band'] = score_band or default_filters['score_band']
+            new_filters['units_band'] = units_band or default_filters['units_band']
+            return (new_filters, None, new_filters['outlet_categories'], new_filters['regions'], new_filters['score_band'], new_filters['units_band'])
 
         if trig_id.startswith('t2-graph-') and trig.get('value'):
             point = trig['value']['points'][0]
             key = make_key_t2(trig_id, point)
 
             if active_selection == key:
-                return default_filters, None, [], [], [], []
+                return default_filters, None, [], [], default_filters['score_band'], default_filters['units_band']
 
             new_filters = default_filters.copy()
 
             if trig_id == 't2-graph-q1':
-                new_filters['weeks'] = [point['x']]
+                if point.get('x'):
+                    new_filters['regions'] = [point.get('x')]
             elif trig_id == 't2-graph-q2':
-                new_filters['weeks'] = [point['x']]
-                oc = None
-                try:
-                    oc = point['customdata'][0]
-                except Exception:
-                    pass
-                if oc:
-                    new_filters['outlet_categories'] = [oc]
+                if point.get('x'):
+                    new_filters['outlet_categories'] = [point.get('x')]
             elif trig_id == 't2-graph-q3':
-                new_filters['service_types'] = [point['x']]
-                new_filters['outlet_categories'] = [point['y']]
+                if point.get('y'):
+                    new_filters['regions'] = [point.get('y')]
+                if point.get('x'):
+                    new_filters['outlet_categories'] = [point.get('x')]
             elif trig_id == 't2-graph-q4a':
-                # Efficiency ranking: use outlet_category from customdata to drive global category filter
+                oc = None
                 try:
                     oc = point.get('customdata', [None])[0]
                 except Exception:
-                    oc = None
+                    pass
                 if oc:
                     new_filters['outlet_categories'] = [oc]
             elif trig_id == 't2-graph-q4b':
-                new_filters['states'] = [point['x']]
                 try:
-                    reg = point['customdata'][0]
-                    if reg:
-                        new_filters['regions'] = [reg]
+                    reg = point.get('customdata', [None, None])[0]
+                    oc = point.get('customdata', [None, None])[1]
                 except Exception:
-                    pass
+                    reg, oc = None, None
+                if reg:
+                    new_filters['regions'] = [reg]
+                if oc:
+                    new_filters['outlet_categories'] = [oc]
 
-            return (new_filters, key, new_filters.get('weeks', []),
-                    new_filters.get('outlet_categories', []),
-                    new_filters.get('regions', []),
-                    new_filters.get('customer_categories', []))
+            return (new_filters, key, new_filters.get('outlet_categories', []), new_filters.get('regions', []), new_filters.get('score_band'), new_filters.get('units_band'))
 
         # Tab 3 -> Global filters (only where dimensions match the global filter bar)
         if trig_id.startswith('t3-graph-') and trig.get('value'):
             point = trig['value']['points'][0]
-
-            # Only propagate weeks and outlet_category; ignore tiers/centers at global level
+            # Only propagate regions and outlet_category; ignore centers at global level
             new_filters = default_filters.copy()
             key = None
             if trig_id == 't3-graph-1':
-                # Expect x = week_number and customdata [week, outlet_category]
                 if 'x' in point:
-                    new_filters['weeks'] = [point['x']]
-                cd = point.get('customdata') or []
-                if len(cd) > 1 and cd[1]:
-                    new_filters['outlet_categories'] = [cd[1]]
-                key = f"t3g1|week={point.get('x')}|outlet={(cd[1] if len(cd)>1 else None)}"
+                    new_filters['regions'] = [point['x']]
+                key = f"t3g1|region={point.get('x')}"
             elif trig_id == 't3-graph-2':
-                cd = point.get('customdata') or []
-                if cd:
-                    new_filters['outlet_categories'] = [cd[0]]
-                key = f"t3g2|outlet={(cd[0] if cd else None)}"
+                if 'x' in point:
+                    new_filters['outlet_categories'] = [point['x']]
+                key = f"t3g2|outlet={point.get('x')}"
             elif trig_id == 't3-graph-3':
-                # Tier has no global control; keep current filters
-                return (current_filters, active_selection, current_filters.get('weeks', []),
-                        current_filters.get('outlet_categories', []), current_filters.get('regions', []),
-                        current_filters.get('customer_categories', []))
+                # heatmap: x=outlet_category, y=rgn
+                new_filters['outlet_categories'] = [point.get('x')]
+                new_filters['regions'] = [point.get('y')]
+                key = f"t3g3|outlet={point.get('x')}|region={point.get('y')}"
             elif trig_id in ('t3-graph-4', 't3-graph-5'):
-                # Center code has no global control; keep current filters
-                return (current_filters, active_selection, current_filters.get('weeks', []),
-                        current_filters.get('outlet_categories', []), current_filters.get('regions', []),
-                        current_filters.get('customer_categories', []))
+                # Skip mapping to global filters
+                return (current_filters, active_selection, current_filters.get('outlet_categories', []), current_filters.get('regions', []), current_filters.get('score_band'), current_filters.get('units_band'))
 
             # If user clicks the same again, clear global filters
             if active_selection == key:
-                return default_filters, None, [], [], [], []
+                return default_filters, None, [], [], default_filters['score_band'], default_filters['units_band']
 
-            return (new_filters, key, new_filters.get('weeks', []),
-                    new_filters.get('outlet_categories', []),
-                    new_filters.get('regions', []),
-                    new_filters.get('customer_categories', []))
+            return (new_filters, key, new_filters.get('outlet_categories', []), new_filters.get('regions', []), new_filters.get('score_band'), new_filters.get('units_band'))
 
         if trig_id.startswith('graph-') and trig.get('value'):
             point = trig['value']['points'][0]
             key = make_key(trig_id, point)
 
             if active_selection == key:
-                return default_filters, None, [], [], [], []
+                return (
+                    default_filters,
+                    None,
+                    [],
+                    [],
+                    default_filters['score_band'],
+                    default_filters['units_band']
+                )
 
             new_filters = default_filters.copy()
             if trig_id == 'graph-q1':
-                new_filters['weeks'] = [point['x']]
+                if point.get('y'):
+                    new_filters['regions'] = [point.get('y')]
             elif trig_id == 'graph-q2':
-                new_filters['weeks'] = [point['x']]
-                new_filters['outlet_categories'] = [point['customdata'][0]]
+                if point.get('x'):
+                    new_filters['outlet_categories'] = [point.get('x')]
             elif trig_id == 'graph-q3':
-                new_filters['service_types'] = [point['x']]
-                new_filters['outlet_categories'] = [point['customdata'][0]]
-            elif trig_id == 'graph-q4':
-                new_filters['states'] = [point['x']]
-                new_filters['regions'] = [point['customdata'][0]]
-            elif trig_id == 'graph-q5':
-                new_filters['customer_categories'] = [point['x']]
-                new_filters['outlet_categories'] = [point['customdata'][0]]
+                if point.get('y'):
+                    new_filters['regions'] = [point.get('y')]
+                if point.get('x'):
+                    new_filters['outlet_categories'] = [point.get('x')]
+            elif trig_id in ('graph-q4', 'graph-q5'):
+                try:
+                    reg = point.get('customdata', [None, None])[0]
+                    oc = point.get('customdata', [None, None])[1]
+                except Exception:
+                    reg, oc = None, None
+                if reg:
+                    new_filters['regions'] = [reg]
+                if oc:
+                    new_filters['outlet_categories'] = [oc]
 
-            return (new_filters, key, new_filters.get('weeks', []),
-                    new_filters.get('outlet_categories', []),
-                    new_filters.get('regions', []),
-                    new_filters.get('customer_categories', []))
+            return (
+                new_filters,
+                key,
+                new_filters.get('outlet_categories', []),
+                new_filters.get('regions', []),
+                new_filters.get('score_band'),
+                new_filters.get('units_band')
+            )
 
-        return (current_filters, active_selection, current_filters.get('weeks', []),
-                current_filters.get('outlet_categories', []), current_filters.get('regions', []),
-                current_filters.get('customer_categories', []))
+        return (current_filters, active_selection,
+                current_filters.get('outlet_categories', []), current_filters.get('regions', []), current_filters.get('score_band'), current_filters.get('units_band'))
 
     # ----- Plot updates (stable colors via color_discrete_map) -----
     @app.callback(
@@ -674,7 +724,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
     )
     def update_graphs(filters):
         return build_tab1_figures(
-            data_dict,
+            tab1,
             filters,
             all_outlet_categories,
             all_regions,
@@ -687,6 +737,13 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
     # ----- Multi-select buttons: capture selections & store snapshots -----
     @app.callback(
         Output('selected-graphs', 'data'),
+        # Visual feedback on selected buttons
+        Output('btn-select-q1', 'aria-pressed'), Output('btn-select-q2', 'aria-pressed'), Output('btn-select-q3', 'aria-pressed'),
+        Output('btn-select-q4', 'aria-pressed'), Output('btn-select-q5', 'aria-pressed'),
+        Output('btn-select-t2-q1', 'aria-pressed'), Output('btn-select-t2-q2', 'aria-pressed'), Output('btn-select-t2-q3', 'aria-pressed'),
+        Output('btn-select-t2-q4a', 'aria-pressed'), Output('btn-select-t2-q4b', 'aria-pressed'),
+        Output('btn-select-t3-1', 'aria-pressed'), Output('btn-select-t3-2', 'aria-pressed'), Output('btn-select-t3-3', 'aria-pressed'),
+        Output('btn-select-t3-4', 'aria-pressed'), Output('btn-select-t3-5', 'aria-pressed'),
         Output('selected-data', 'data'),
         Output('selected-info', 'children'),
         # Tab 1 buttons
@@ -734,7 +791,8 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         # Clear selection request from sidebar
         if triggered == 'clear-selection':
             info = html.Div("No charts selected yet.", style={'color': '#6b7280', 'fontSize': '13px'})
-            return [], {}, info
+            pressed = ['false'] * 15
+            return [], *pressed, {}, info
 
         # Helper to add/remove
         def toggle(graph_id: str, df_full, df_chart):
@@ -752,8 +810,8 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         # Tab 1 mapping (store UNFILTERED datasets for LLM)
         if triggered.startswith('btn-select-q'):
             # Build both full (unfiltered) and chart (current-filtered) datasets
-            df_q1_full, df_q2_full, df_q3_full, df_q4_full, df_q5_full = t1_get_filtered_frames(data_dict, {})
-            df_q1_chart, df_q2_chart, df_q3_chart, df_q4_chart, df_q5_chart = t1_get_filtered_frames(data_dict, filters or {})
+            df_q1_full, df_q2_full, df_q3_full, df_q4_full, df_q5_full = t1_get_filtered_frames(tab1, {})
+            df_q1_chart, df_q2_chart, df_q3_chart, df_q4_chart, df_q5_chart = t1_get_filtered_frames(tab1, (filters or {}))
             id_map = {
                 'btn-select-q1': ('q1', df_q1_full, df_q1_chart),
                 'btn-select-q2': ('q2', df_q2_full, df_q2_chart),
@@ -794,13 +852,9 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                     return [x for x in la if x in sb]
                 return la or lb
             merged = {
-                'weeks': combine(gf.get('weeks'), lf.get('weeks')),
                 'outlet_categories': combine(gf.get('outlet_categories'), lf.get('outlet_categories')),
-                'performance_tiers': list(lf.get('performance_tiers', [])),
-                'sales_center_codes': list(lf.get('sales_center_codes', [])),
-                'service_types': list(gf.get('service_types', [])),
                 'regions': list(gf.get('regions', [])),
-                'states': list(gf.get('states', [])),
+                'sales_center_codes': list(lf.get('sales_center_codes', [])),
             }
             q1_t3_chart, q2_t3_chart, q3_t3_chart, q4_t3_chart = t3_get_filtered_frames(data_dict_3 or {}, merged)
             m_t3_chart = merged_for_chart2(q2_t3_chart, q3_t3_chart)
@@ -819,7 +873,8 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
 
         if not selected_graphs:
             info = html.Div("No charts selected yet.", style={'color': '#6b7280', 'fontSize': '13px'})
-            return selected_graphs, selected_data, info
+            pressed = ['false'] * 15
+            return selected_graphs, *pressed, selected_data, info
 
         # chip style
         def chip(text):
@@ -845,7 +900,15 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             html.Div(chips, style={'display': 'flex', 'flexWrap': 'wrap'})
         ])
 
-        return selected_graphs, selected_data, info
+        # Build aria-pressed map for all select buttons
+        btn_ids = [
+            'q1','q2','q3','q4','q5',
+            't2-graph-q1','t2-graph-q2','t2-graph-q3','t2-graph-q4a','t2-graph-q4b',
+            't3-graph-1','t3-graph-2','t3-graph-3','t3-graph-4','t3-graph-5'
+        ]
+        pressed = [('true' if gid in selected_graphs else 'false') for gid in btn_ids]
+
+        return selected_graphs, *pressed, selected_data, info
 
     # ----- View-underlying-data tables (inline) -----
     @app.callback(
@@ -867,6 +930,22 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         Output('table-t3-3', 'children'),
         Output('table-t3-4', 'children'),
         Output('table-t3-5', 'children'),
+        # Pressed state for all view buttons
+        Output('btn-view-q1', 'aria-pressed'),
+        Output('btn-view-q2', 'aria-pressed'),
+        Output('btn-view-q3', 'aria-pressed'),
+        Output('btn-view-q4', 'aria-pressed'),
+        Output('btn-view-q5', 'aria-pressed'),
+        Output('btn-view-t2-q1', 'aria-pressed'),
+        Output('btn-view-t2-q2', 'aria-pressed'),
+        Output('btn-view-t2-q3', 'aria-pressed'),
+        Output('btn-view-t2-q4a', 'aria-pressed'),
+        Output('btn-view-t2-q4b', 'aria-pressed'),
+        Output('btn-view-t3-1', 'aria-pressed'),
+        Output('btn-view-t3-2', 'aria-pressed'),
+        Output('btn-view-t3-3', 'aria-pressed'),
+        Output('btn-view-t3-4', 'aria-pressed'),
+        Output('btn-view-t3-5', 'aria-pressed'),
 
         # Inputs: all view buttons
         Input('btn-view-q1', 'n_clicks'),
@@ -946,19 +1025,19 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                 style_as_list_view=True,
             )
 
-        # Defaults: no update for all outputs
+        # Defaults: no update for all table outputs
         out = [no_update] * 15
 
         # Resolve filtered frames based on which section triggered
         if triggered.startswith('btn-view-q'):
-            # Tab 1 filtered frames (include plotted variants)
-            df_q1, df_q2_plot, df_q3_plot, df_q4_plot, df_q5_plot = t1_get_filtered_frames(data_dict, filters or {})
+            # Tab 1 filtered frames (new schema)
+            df_q1, df_q2, df_q3, df_q4, df_q5 = t1_get_filtered_frames(tab1, (filters or {}))
             id_map = {
                 'btn-view-q1': (0, df_q1, tq1),
-                'btn-view-q2': (1, df_q2_plot, tq2),
-                'btn-view-q3': (2, df_q3_plot, tq3),
-                'btn-view-q4': (3, df_q4_plot, tq4),
-                'btn-view-q5': (4, df_q5_plot, tq5),
+                'btn-view-q2': (1, df_q2, tq2),
+                'btn-view-q3': (2, df_q3, tq3),
+                'btn-view-q4': (3, df_q4, tq4),
+                'btn-view-q5': (4, df_q5, tq5),
             }
             idx, df, cur = id_map[triggered]
             out[idx] = None if cur else table_from_df(df)
@@ -986,13 +1065,9 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                     return [x for x in la if x in sb]
                 return la or lb
             merged = {
-                'weeks': combine(gf.get('weeks'), lf.get('weeks')),
                 'outlet_categories': combine(gf.get('outlet_categories'), lf.get('outlet_categories')),
-                'performance_tiers': list(lf.get('performance_tiers', [])),
-                'sales_center_codes': list(lf.get('sales_center_codes', [])),
-                'service_types': list(gf.get('service_types', [])),
                 'regions': list(gf.get('regions', [])),
-                'states': list(gf.get('states', [])),
+                'sales_center_codes': list(lf.get('sales_center_codes', [])),
             }
             q1_t3, q2_t3, q3_t3, q4_t3 = t3_get_filtered_frames(data_dict_3 or {}, merged)
             m_t3 = merged_for_chart2(q2_t3, q3_t3)
@@ -1006,7 +1081,20 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             idx, df, cur = id_map3[triggered]
             out[idx] = None if cur else table_from_df(df)
 
-        return tuple(out)
+        # Build final visibility/pressed states for each table button
+        current_tables = [
+            tq1, tq2, tq3, tq4, tq5,
+            tt2q1, tt2q2, tt2q3, tt2q4a, tt2q4b,
+            tt3_1, tt3_2, tt3_3, tt3_4, tt3_5,
+        ]
+        # Apply updated ones
+        final_tables = [
+            (out[i] if out[i] is not no_update else current_tables[i])
+            for i in range(15)
+        ]
+        pressed = [('true' if final_tables[i] is not None else 'false') for i in range(15)]
+
+        return tuple(out + pressed)
 
     # ----- Tab 2: figures (q1–q4b) -----
     @app.callback(
@@ -1026,6 +1114,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             all_outlet_categories=all_outlet_categories,
             all_regions=all_regions,
             labels=GRAPH_LABELS,
+            scatter_color_map=scatter_color_map,
         )
 
     # ----- Tab 3: Five-Chart Dashboard figures -----
@@ -1052,14 +1141,9 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             return la or lb
 
         merged = {
-            'weeks': combine(gf.get('weeks'), lf.get('weeks')),
             'outlet_categories': combine(gf.get('outlet_categories'), lf.get('outlet_categories')),
-            'performance_tiers': list(lf.get('performance_tiers', [])),
-            'sales_center_codes': list(lf.get('sales_center_codes', [])),
-            # pass-through global-only filters as well
-            'service_types': list(gf.get('service_types', [])),
             'regions': list(gf.get('regions', [])),
-            'states': list(gf.get('states', [])),
+            'sales_center_codes': list(lf.get('sales_center_codes', [])),
         }
         return build_tab3_figures(
             data_dict_3 or {},
@@ -1068,6 +1152,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             tier_colors=tier_color_map(),
             all_outlet_categories=all_outlet_categories,
             labels=GRAPH_LABELS,
+            scatter_color_map=scatter_color_map,
         )
 
     # Tab 3 cross-filtering controller
@@ -1082,7 +1167,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         prevent_initial_call=True
     )
     def update_tab3_filters(c1, c2, c3, c4, c5, current):
-        current = dict(current or {'weeks': [], 'outlet_categories': [], 'performance_tiers': [], 'sales_center_codes': []})
+        current = dict(current or {'outlet_categories': [], 'sales_center_codes': []})
         trig_id = ctx.triggered_id
         if trig_id is None:
             raise PreventUpdate
@@ -1100,29 +1185,14 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                 return cur
             return [] if (len(cur) == 1 and cur[0] == val) else [val]
 
-        if trig_id == 't3-graph-1':
-            point = get_first_point(c1)
-            if point:
-                if 'x' in point:
-                    newf['weeks'] = toggle_single(newf.get('weeks'), point['x'])
-                cd = point.get('customdata') or []
-                if cd:
-                    # expecting [week_number, outlet_category]
-                    if len(cd) > 1 and cd[1]:
-                        newf['outlet_categories'] = toggle_single(newf.get('outlet_categories'), cd[1])
-        elif trig_id == 't3-graph-2':
+        if trig_id == 't3-graph-2':
             point = get_first_point(c2)
-            if point:
-                cd = point.get('customdata') or []
-                if cd:
-                    newf['outlet_categories'] = toggle_single(newf.get('outlet_categories'), cd[0])
+            if point and point.get('x') is not None:
+                newf['outlet_categories'] = toggle_single(newf.get('outlet_categories'), point.get('x'))
         elif trig_id == 't3-graph-3':
             point = get_first_point(c3)
-            if point:
-                cd = point.get('customdata') or []
-                tier = cd[0] if cd else (point.get('legendgroup') or point.get('label') or point.get('x'))
-                if tier:
-                    newf['performance_tiers'] = toggle_single(newf.get('performance_tiers'), tier)
+            if point and point.get('x') is not None:
+                newf['outlet_categories'] = toggle_single(newf.get('outlet_categories'), point.get('x'))
         elif trig_id == 't3-graph-4':
             point = get_first_point(c4)
             if point:
@@ -1133,13 +1203,8 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         elif trig_id == 't3-graph-5':
             point = get_first_point(c5)
             if point:
-                code = None
                 cd = point.get('customdata') or []
-                if cd:
-                    code = cd[0]
-                if code is None:
-                    # fallbacks for bar chart
-                    code = point.get('y') or point.get('label') or point.get('x')
+                code = cd[0] if cd else None
                 if code is not None:
                     newf['sales_center_codes'] = toggle_single(newf.get('sales_center_codes'), str(code))
         return newf
@@ -1149,9 +1214,15 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
 
 if __name__ == '__main__':
     try:
-        data_dict = get_tab1_results()
-        data_dict_tab2 = get_tab2_results()
-        data_dict_tab3 = get_tab3_results()
+        if os.environ.get('DASH_OFFLINE', '0') == '1':
+            # Offline/dev mode: skip DB calls and start app with empty datasets
+            data_dict = _ensure_tab1_defaults({})
+            data_dict_tab2 = {}
+            data_dict_tab3 = {}
+        else:
+            data_dict = get_tab1_results()
+            data_dict_tab2 = get_tab2_results()
+            data_dict_tab3 = get_tab3_results()
         app = create_dashboard(data_dict, data_dict_tab2, data_dict_tab3)
         app.run(debug=True, port=8090)
     except ImportError:

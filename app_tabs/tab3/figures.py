@@ -3,44 +3,48 @@ from typing import Dict, List, Tuple
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from dash import html
+from utils.colors import base_palette
 
 
 def _apply_filters(df: pd.DataFrame, f: Dict) -> pd.DataFrame:
     if df is None or df.empty:
         return df
     out = df.copy()
-    if f.get('weeks') and 'week_number' in out.columns:
-        out = out[out['week_number'].isin(f['weeks'])]
+    # Primary global filters
     if f.get('outlet_categories') and 'outlet_category' in out.columns:
         out = out[out['outlet_category'].isin(f['outlet_categories'])]
-    if f.get('service_types') and 'service_type' in out.columns:
-        out = out[out['service_type'].isin(f['service_types'])]
-    if f.get('regions') and 'region' in out.columns:
-        out = out[out['region'].isin(f['regions'])]
-    if f.get('states') and 'state' in out.columns:
-        out = out[out['state'].isin(f['states'])]
-    if f.get('performance_tiers') and 'performance_tier' in out.columns:
-        out = out[out['performance_tier'].isin(f['performance_tiers'])]
-    if f.get('sales_center_codes') and 'sales_center_code' in out.columns:
-        try:
-            codes = set(str(x) for x in f['sales_center_codes'])
+    if f.get('regions') and 'rgn' in out.columns:
+        out = out[out['rgn'].isin(f['regions'])]
+    # Numeric filters
+    units_band = f.get('units_band') or 'All'
+
+    # Local-only filter (reuse name sales_center_codes for service_outlet)
+    if f.get('sales_center_codes'):
+        codes = set(str(x) for x in f['sales_center_codes'])
+        if 'service_outlet' in out.columns:
+            out = out[out['service_outlet'].astype(str).isin(codes)]
+        elif 'sales_center_code' in out.columns:
             out = out[out['sales_center_code'].astype(str).isin(codes)]
-        except Exception:
-            out = out[out['sales_center_code'].isin(f['sales_center_codes'])]
+    # Apply units range where available
+    if units_band != 'All':
+        if 'avg_intake_units' in out.columns:
+            if units_band == 'GE50':
+                out = out[out['avg_intake_units'] >= 50]
+            elif units_band == '20_49':
+                out = out[(out['avg_intake_units'] >= 20) & (out['avg_intake_units'] <= 49)]
+            elif units_band == 'LT20':
+                out = out[out['avg_intake_units'] < 20]
+        if 'intake_unit' in out.columns:
+            if units_band == 'GE50':
+                out = out[out['intake_unit'] >= 50]
+            elif units_band == '20_49':
+                out = out[(out['intake_unit'] >= 20) & (out['intake_unit'] <= 49)]
+            elif units_band == 'LT20':
+                out = out[out['intake_unit'] < 20]
     return out
 
 
-def _kpi_card(title: str, value: str, sub: str = "") -> html.Div:  # type: ignore[name-defined]
-    return html.Div([
-        html.Div(title, style={'fontSize': '12px', 'color': '#6b7280'}),
-        html.Div(value, style={'fontSize': '20px', 'fontWeight': 800}),
-        html.Div(sub, style={'fontSize': '11px', 'color': '#6b7280'}) if sub else None,
-    ], style={
-        'border': '1px solid #e5e7eb', 'borderRadius': '10px', 'padding': '10px 12px',
-        'minWidth': '180px', 'backgroundColor': 'white', 'boxShadow': '0 1px 2px rgba(0,0,0,0.04)'
-    })
+## Removed unused _kpi_card helper (not referenced)
 
 
 def get_filtered_frames_simple(data: Dict[str, pd.DataFrame], filters: Dict) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -53,39 +57,26 @@ def get_filtered_frames_simple(data: Dict[str, pd.DataFrame], filters: Dict) -> 
 
 
 def merged_for_chart2(q2: pd.DataFrame, q3: pd.DataFrame) -> pd.DataFrame:
-    """Build the merged dataset used conceptually by Chart 2 (quadrant)."""
-    cats_df = pd.DataFrame({'outlet_category': []})
+    """Merge category-level value and quality metrics for Tab 3 Chart 2 table view."""
+    cats = pd.DataFrame({'outlet_category': []})
     if not q2.empty and 'outlet_category' in q2.columns:
-        cats_df = pd.DataFrame({'outlet_category': pd.Index(q2['outlet_category'].dropna().unique())})
+        cats = pd.DataFrame({'outlet_category': pd.Index(q2['outlet_category'].dropna().unique())})
     if not q3.empty and 'outlet_category' in q3.columns:
-        q3cats = pd.Index(q3['outlet_category'].dropna().unique())
-        base = pd.Index(cats_df['outlet_category']) if not cats_df.empty else pd.Index([])
-        cats_df = pd.DataFrame({'outlet_category': list(base.union(q3cats))})
+        oc3 = pd.Index(q3['outlet_category'].dropna().unique())
+        base = pd.Index(cats['outlet_category']) if not cats.empty else pd.Index([])
+        cats = pd.DataFrame({'outlet_category': list(base.union(oc3))})
 
     agg_q2 = pd.DataFrame()
     if not q2.empty and 'outlet_category' in q2.columns:
-        agg_map = {}
-        if 'registrations' in q2.columns:
-            agg_map['registrations'] = 'sum'
-        elif 'total_registrations' in q2.columns:
-            agg_map['total_registrations'] = 'sum'
-        if 'avg_vehicle_value' in q2.columns:
-            agg_map['avg_vehicle_value'] = 'mean'
-        if 'total_sales_value' in q2.columns:
-            agg_map['total_sales_value'] = 'sum'
-        if 'value_per_processing_day' in q2.columns:
-            agg_map['value_per_processing_day'] = 'mean'
-        if agg_map:
-            agg_q2 = q2.groupby('outlet_category', dropna=False).agg(agg_map).reset_index()
-            if 'total_registrations' in agg_q2.columns and 'registrations' not in agg_q2.columns:
-                agg_q2 = agg_q2.rename(columns={'total_registrations': 'registrations'})
+        cols = [c for c in q2.columns if c != 'outlet_category']
+        agg_q2 = q2.groupby('outlet_category', dropna=False)[cols].mean(numeric_only=True).reset_index()
 
     agg_q3 = pd.DataFrame()
     if not q3.empty and 'outlet_category' in q3.columns:
-        if 'avg_processing_days' in q3.columns:
-            agg_q3 = q3.groupby('outlet_category', dropna=False)['avg_processing_days'].mean().reset_index()
+        cols = [c for c in q3.columns if c != 'outlet_category' and c != 'rgn']
+        agg_q3 = q3.groupby('outlet_category', dropna=False)[cols].mean(numeric_only=True).reset_index()
 
-    m = cats_df.copy()
+    m = cats.copy()
     if not agg_q2.empty:
         m = m.merge(agg_q2, on='outlet_category', how='left')
     if not agg_q3.empty:
@@ -100,215 +91,96 @@ def build_tab3_figures(
     tier_colors: Dict[str, str] | None = None,
     all_outlet_categories: List[str] | None = None,
     labels: Dict[str, str] | None = None,
+    scatter_color_map: Dict[str, str] | None = None,
 ) -> Tuple[go.Figure, go.Figure, go.Figure, go.Figure, go.Figure]:
-    """Build Alternative 1 for Tab 3.
-
-    Returns:
-      - fig1 (Chart 1), fig2 (Chart 2), fig3 (Chart 3), fig5 (Chart 5)
-      - kpi_children (list of Divs), table_columns (list), table_data (list)
-    """
+    """Build five charts for Tab 3 aligned to Sheet 3 (Value & Performance)."""
     q1 = _apply_filters(data.get('q1', pd.DataFrame()), filters)
     q2 = _apply_filters(data.get('q2', pd.DataFrame()), filters)
     q3 = _apply_filters(data.get('q3', pd.DataFrame()), filters)
     q4 = _apply_filters(data.get('q4', pd.DataFrame()), filters)
 
-    # 1) Week-over-Week Category Race (Grouped Bars)
+    # 1) Regional Value & Ops Metrics (grouped bar)
     fig1 = go.Figure()
-    if not q2.empty and {'week_number', 'outlet_category'}.issubset(q2.columns):
-        ycol = 'registrations' if 'registrations' in q2.columns else 'total_registrations' if 'total_registrations' in q2.columns else None
-        if ycol:
-            df_plot = q2[['week_number', 'outlet_category', ycol]].copy()
+    if not q1.empty and 'rgn' in q1.columns:
+        metrics = [c for c in ['avg_intake_units', 'avg_intake_percentage', 'avg_revenue_performance', 'avg_parts_performance', 'avg_lubricant_performance'] if c in q1.columns]
+        if metrics:
+            long = q1.melt(id_vars=['rgn'], value_vars=metrics, var_name='metric', value_name='value')
             fig1 = px.bar(
-                df_plot, x='week_number', y=ycol, color='outlet_category', barmode='group',
-                custom_data=['week_number', 'outlet_category'],
-                title=(labels or {}).get('t3-graph-1', 'Weekly Performance Overview'),
-                color_discrete_map=outlet_color_map or {},
-                category_orders={'outlet_category': all_outlet_categories or []}
+                long, x='rgn', y='value', color='metric', barmode='group',
+                title=(labels or {}).get('t3-graph-1', 'Regional Value & Ops Metrics'),
+                custom_data=['rgn'],
+                pattern_shape_sequence=[""],
+                color_discrete_sequence=base_palette
             )
-            fig1.update_layout(uirevision='t3', hovermode='x unified')
+            fig1.update_layout(uirevision='t3', margin=dict(t=24))
     else:
-        fig1.update_layout(title='Week-over-Week Category Race (insufficient data)')
+        fig1.update_layout(title=(labels or {}).get('t3-graph-1', 'Regional Value & Ops Metrics'), margin=dict(t=24))
 
-    # 2) Efficiency & Value Quadrant (Scatter)
+    # 2) Category Value & Ops Metrics (grouped bar)
     fig2 = go.Figure()
-    # Aggregate by outlet_category from q2 (value metrics) and q3 (efficiency)
-    # Build a base category list to prevent KeyError on merge
-    cats_df = pd.DataFrame({'outlet_category': []})
     if not q2.empty and 'outlet_category' in q2.columns:
-        cats_df = pd.DataFrame({'outlet_category': pd.Index(q2['outlet_category'].dropna().unique())})
-    if not q3.empty and 'outlet_category' in q3.columns:
-        q3cats = pd.Index(q3['outlet_category'].dropna().unique())
-        base = pd.Index(cats_df['outlet_category']) if not cats_df.empty else pd.Index([])
-        cats_df = pd.DataFrame({'outlet_category': list(base.union(q3cats))})
-
-    agg_q2 = pd.DataFrame()
-    if not q2.empty and 'outlet_category' in q2.columns:
-        agg_map = {}
-        if 'registrations' in q2.columns:
-            agg_map['registrations'] = 'sum'
-        elif 'total_registrations' in q2.columns:
-            agg_map['total_registrations'] = 'sum'
-        if 'avg_vehicle_value' in q2.columns:
-            agg_map['avg_vehicle_value'] = 'mean'
-        if 'total_sales_value' in q2.columns:
-            agg_map['total_sales_value'] = 'sum'
-        if 'value_per_processing_day' in q2.columns:
-            agg_map['value_per_processing_day'] = 'mean'
-        if agg_map:
-            agg_q2 = q2.groupby('outlet_category', dropna=False).agg(agg_map).reset_index()
-            if 'total_registrations' in agg_q2.columns and 'registrations' not in agg_q2.columns:
-                agg_q2 = agg_q2.rename(columns={'total_registrations': 'registrations'})
-    agg_q3 = pd.DataFrame()
-    if not q3.empty and 'outlet_category' in q3.columns:
-        if 'avg_processing_days' in q3.columns:
-            agg_q3 = q3.groupby('outlet_category', dropna=False)['avg_processing_days'].mean().reset_index()
-        else:
-            agg_q3 = pd.DataFrame(columns=['outlet_category', 'avg_processing_days'])
-
-    # Start with cats_df, then left-merge whatever aggregates exist
-    m = cats_df.copy()
-    if not agg_q2.empty:
-        m = m.merge(agg_q2, on='outlet_category', how='left')
-    if not agg_q3.empty:
-        m = m.merge(agg_q3, on='outlet_category', how='left')
-
-    # Ensure required columns exist, even if NaN
-    for c in ['registrations', 'avg_vehicle_value', 'avg_processing_days', 'total_sales_value', 'value_per_processing_day']:
-        if c not in m.columns:
-            m[c] = None
-
-    if not m.empty and 'outlet_category' in m.columns and 'registrations' in m.columns:
-        fig2 = px.scatter(
-            m, x='avg_processing_days', y='avg_vehicle_value', size='registrations', color='outlet_category',
-            hover_data=['outlet_category', 'total_sales_value', 'value_per_processing_day'],
-            custom_data=['outlet_category'],
-            title=(labels or {}).get('t3-graph-2', 'Efficiency & Value Quadrant'),
-            color_discrete_map=outlet_color_map or {},
-            category_orders={'outlet_category': all_outlet_categories or []}
-        )
-        # Quadrant lines at means
-        try:
-            xmean = float(m['avg_processing_days'].dropna().mean())
-            ymean = float(m['avg_vehicle_value'].dropna().mean())
-            fig2.add_vline(x=xmean, line_dash='dash', line_color='#9ca3af')
-            fig2.add_hline(y=ymean, line_dash='dash', line_color='#9ca3af')
-        except Exception:
-            pass
-        fig2.update_layout(uirevision='t3')
-    else:
-        fig2.update_layout(title='Efficiency & Value Quadrant (insufficient data)')
-
-    # 3) Performance Tier Contribution (100% Stacked)
-    fig3 = go.Figure()
-    if not q3.empty and {'performance_tier'}.issubset(q3.columns):
-        # Aggregate totals by tier, robust to missing columns
-        agg_cols = {}
-        if 'total_sales_value' in q3.columns:
-            agg_cols['total_sales_value'] = 'sum'
-        reg_col_name = None
-        if 'total_registrations' in q3.columns:
-            agg_cols['total_registrations'] = 'sum'
-            reg_col_name = 'total_registrations'
-        elif 'registrations' in q3.columns:
-            agg_cols['registrations'] = 'sum'
-            reg_col_name = 'registrations'
-        if not agg_cols:
-            # Fallback: use counts only
-            tiers = q3.groupby('performance_tier', dropna=False).size().reset_index(name='registrations')
-        else:
-            tiers = q3.groupby('performance_tier', dropna=False).agg(agg_cols).reset_index()
-        # Build long dataframe for stacked normalization
-        value_vars = []
-        if 'total_sales_value' in tiers.columns:
-            value_vars.append('total_sales_value')
-        if reg_col_name and reg_col_name in tiers.columns:
-            value_vars.append(reg_col_name)
-        if not value_vars:
-            tiers['registrations'] = tiers.get('registrations', 0)
-            value_vars = ['registrations']
-        long_df = pd.melt(tiers, id_vars=['performance_tier'], value_vars=value_vars, var_name='metric', value_name='value')
-        tier_order = ['HIGH_PERFORMER','GOOD_PERFORMER','AVERAGE_PERFORMER','NEEDS_IMPROVEMENT']
-        fig3 = px.bar(
-            long_df, x='metric', y='value', color='performance_tier',
-            custom_data=['performance_tier'],
-            title=(labels or {}).get('t3-graph-3', 'Sales Centers Performance Tier Contribution'),
-            color_discrete_map=tier_colors or {},
-            category_orders={'performance_tier': tier_order}
-        )
-        # barnorm='percent' puts the axis in units 0..100. Using '.0%' would multiply by 100 again.
-        # Keep axis as 0..100 with a percent suffix for correct labeling.
-        fig3.update_layout(barmode='stack', barnorm='percent', uirevision='t3')
-        fig3.update_yaxes(range=[0, 100], tickformat='.0f', ticksuffix='%')
-    else:
-        fig3.update_layout(title='Performance Tier Contribution (insufficient data)')
-
-    # 4) Top Performers (Horizontal Bar)
-    fig4 = go.Figure()
-    if not q3.empty and {'sales_center_code', 'composite_score'}.issubset(q3.columns):
-        top = q3.copy()
-        # Choose label
-        ylab = 'sales_center_name' if 'sales_center_name' in top.columns else 'sales_center_code'
-        # Create metric safely
-        metric = 'composite_score' if 'composite_score' in top.columns else None
-        if metric:
-            top = top.sort_values(metric, ascending=False, na_position='last').head(10)
-            tier_order = ['HIGH_PERFORMER','GOOD_PERFORMER','AVERAGE_PERFORMER','NEEDS_IMPROVEMENT']
-            fig4 = px.bar(
-                top,
-                y=ylab,
-                x=metric,
-                orientation='h',
-                color='performance_tier' if 'performance_tier' in top.columns else None,
-                custom_data=['sales_center_code'],
-                title=(labels or {}).get('t3-graph-4', 'Top Performers of Sales Centers'),
-                color_discrete_map=(tier_colors or {}) if 'performance_tier' in top.columns else None,
-                category_orders={'performance_tier': tier_order}
+        metrics = [c for c in ['avg_intake_units', 'avg_intake_percentage', 'avg_revenue_performance', 'avg_eappointment_adoption', 'avg_quality_performance_index'] if c in q2.columns]
+        if metrics:
+            long = q2.melt(id_vars=['outlet_category'], value_vars=metrics, var_name='metric', value_name='value')
+            fig2 = px.bar(
+                long, x='outlet_category', y='value', color='metric', barmode='group',
+                title=(labels or {}).get('t3-graph-2', 'Category Value & Ops Metrics'),
+                custom_data=['outlet_category'],
+                pattern_shape_sequence=[""],
+                color_discrete_sequence=base_palette
             )
-            fig4.update_layout(yaxis=dict(autorange='reversed'), uirevision='t3')
+            fig2.update_layout(uirevision='t3', margin=dict(t=24))
     else:
-        fig4.update_layout(title='Top Performers (insufficient data)')
+        fig2.update_layout(title=(labels or {}).get('t3-graph-2', 'Category Value & Ops Metrics'), margin=dict(t=24))
 
-    # 5) Salesman/Center Performance (Bar Chart)
-    fig5 = go.Figure()
-    if not q4.empty and 'sales_center_code' in q4.columns:
-        df = q4.copy()
-        # Ensure code string, pick metrics
-        try:
-            df['sales_center_code'] = df['sales_center_code'].astype(str)
-        except Exception:
-            pass
-        reg_col = 'registrations' if 'registrations' in df.columns else 'total_registrations' if 'total_registrations' in df.columns else None
-        if reg_col is None:
-            df['registrations'] = 1
-            reg_col = 'registrations'
-        # Aggregate by center
-        agg = {reg_col: 'sum'}
-        if 'avg_deal_value' in df.columns:
-            agg['avg_deal_value'] = 'mean'
-        label_col = 'sales_center_name' if 'sales_center_name' in df.columns else 'sales_center_code'
-        group_keys = ['sales_center_code']
-        if label_col != 'sales_center_code':
-            group_keys.append(label_col)
-        g = df.groupby(group_keys, dropna=False).agg(agg).reset_index()
-        # Normalize column names
-        if reg_col != 'registrations':
-            g = g.rename(columns={reg_col: 'registrations'})
-        # Sort and take top N for readability
-        g = g.sort_values('registrations', ascending=False).head(25)
-        # Build horizontal bar, color by avg_deal_value if present
-        color_arg = 'avg_deal_value' if 'avg_deal_value' in g.columns else None
-        fig5 = px.bar(
-            g,
-            y=label_col,
-            x='registrations',
-            orientation='h',
-            color=color_arg,
-            color_continuous_scale='Viridis' if color_arg else None,
-            custom_data=['sales_center_code'],
-            title=(labels or {}).get('t3-graph-5', 'Sales Center Performance (Top)')
+    # 3) Region × Category Heatmap (Quality Performance Index)
+    fig3 = go.Figure()
+    if not q3.empty and {'rgn', 'outlet_category'}.issubset(q3.columns):
+        z = 'avg_quality_performance_index' if 'avg_quality_performance_index' in q3.columns else (
+            'avg_customer_satisfaction_service' if 'avg_customer_satisfaction_service' in q3.columns else None
         )
-        fig5.update_layout(uirevision='t3', yaxis=dict(autorange='reversed'))
+        if z:
+            piv = q3.pivot_table(index='rgn', columns='outlet_category', values=z, aggfunc='mean', fill_value=0)
+            fig3 = px.imshow(
+                piv.values, x=piv.columns.astype(str), y=piv.index.astype(str),
+                aspect='auto', color_continuous_scale='Blues',
+                title=(labels or {}).get('t3-graph-3', 'Region × Category (Quality Index)')
+            )
+            fig3.update_layout(uirevision='t3', margin=dict(t=24))
     else:
-        fig5.update_layout(title='Center Performance (insufficient data)')
+        fig3.update_layout(title=(labels or {}).get('t3-graph-3', 'Region × Category (Quality Index)'), margin=dict(t=24))
+
+    # 4) Top Service Outlets by Intake Units (barh)
+    fig4 = go.Figure()
+    if not q4.empty and {'service_outlet', 'intake_unit'}.issubset(q4.columns):
+        top = q4.sort_values('intake_unit', ascending=False, na_position='last').head(15)
+        fig4 = px.bar(
+            top, y='service_outlet', x='intake_unit', orientation='h',
+            color='outlet_category' if 'outlet_category' in top.columns else None,
+            custom_data=['service_outlet'],
+            title=(labels or {}).get('t3-graph-4', 'Top Service Outlets by Intake Units'),
+            pattern_shape_sequence=[""],
+            color_discrete_sequence=(base_palette if 'outlet_category' not in top.columns else None),
+            color_discrete_map=(outlet_color_map or {}) if 'outlet_category' in top.columns else None,
+            category_orders={'outlet_category': (all_outlet_categories or [])} if 'outlet_category' in top.columns else None
+        )
+        fig4.update_layout(yaxis=dict(autorange='reversed'), uirevision='t3', margin=dict(t=24))
+    else:
+        fig4.update_layout(title=(labels or {}).get('t3-graph-4', 'Top Service Outlets by Intake Units'), margin=dict(t=24))
+
+    # 5) Service Outlet: CS% vs QPI% (scatter)
+    fig5 = go.Figure()
+    if not q4.empty and {'cs_service_pct', 'qpi_pct'}.issubset(q4.columns):
+        fig5 = px.scatter(
+            q4, x='cs_service_pct', y='qpi_pct', size='intake_unit' if 'intake_unit' in q4.columns else None,
+            color='outlet_category' if 'outlet_category' in q4.columns else None,
+            custom_data=['service_outlet'] if 'service_outlet' in q4.columns else None,
+            title=(labels or {}).get('t3-graph-5', 'Service CS% vs QPI%'),
+            color_discrete_map=((scatter_color_map or outlet_color_map or {})) if 'outlet_category' in q4.columns else None,
+            category_orders={'outlet_category': (all_outlet_categories or [])} if 'outlet_category' in q4.columns else None
+        )
+        fig5.update_layout(uirevision='t3', margin=dict(t=24))
+    else:
+        fig5.update_layout(title=(labels or {}).get('t3-graph-5', 'Service CS% vs QPI%'), margin=dict(t=24))
 
     return fig1, fig2, fig3, fig4, fig5

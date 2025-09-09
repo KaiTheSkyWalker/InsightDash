@@ -6,7 +6,7 @@ MODEL_NAME = os.environ.get("GENAI_MODEL_NAME", "gemini-2.0-flash")
 
 # Database configuration (defaults match current code; override via env vars)
 DB_SERVER = os.environ.get("DB_SERVER", "localhost")
-DB_DATABASE = os.environ.get("DB_DATABASE", "ExcelData")
+DB_DATABASE = os.environ.get("DB_DATABASE", "Master")
 DB_USERNAME = os.environ.get("DB_USERNAME", "SA")
 DB_PASSWORD = os.environ.get("DB_PASSWORD", "MyStrongPass123")
 ODBC_DRIVER = os.environ.get("ODBC_DRIVER", "ODBC Driver 17 for SQL Server")

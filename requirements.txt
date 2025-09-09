@@ -1,0 +1,11 @@
+dash>=2.14
+plotly>=5.20
+pandas>=2.0
+numpy>=1.24
+sqlalchemy>=2.0
+pyodbc>=5.0
+loguru>=0.7
+dash-resizable-panels>=0.1.5
+# Optional LLM clients (either is fine)
+google-genai>=0.3; python_version>="3.9"
+google-generativeai>=0.7; python_version>="3.9"

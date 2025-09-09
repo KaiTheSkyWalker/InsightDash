@@ -17,6 +17,20 @@ base_palette = [
     '#BFDBFE',  # Blue 200
 ]
 
+# High-contrast categorical palette for scatter plots (more differentiable)
+diverse_palette = [
+    '#2563EB',  # Blue
+    '#D97706',  # Amber 700
+    '#059669',  # Emerald 600
+    '#7C3AED',  # Violet 600
+    '#DC2626',  # Red 600
+    '#0EA5E9',  # Sky 500
+    '#F59E0B',  # Amber 500
+    '#10B981',  # Emerald 500
+    '#8B5CF6',  # Violet 500
+    '#EF4444',  # Red 500
+]
+
 
 def color_map_from_list(keys, palette=base_palette):
     """Return a stable color map for the given keys using the palette."""

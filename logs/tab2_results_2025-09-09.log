@@ -1,0 +1,24 @@
+2025-09-09 10:43:42.131 | INFO     | data_layer.tab_2:get_tab2_results:13 - Starting database connection and query execution
+2025-09-09 10:43:42.131 | INFO     | data_layer.tab_2:get_tab2_results:17 - Successfully connected to database: Master on server: localhost
+2025-09-09 10:43:42.132 | INFO     | data_layer.tab_2:get_tab2_results:28 - Executing query: q1
+2025-09-09 10:43:42.169 | SUCCESS  | data_layer.tab_2:get_tab2_results:32 - Query q1 executed successfully. Rows returned: 7
+2025-09-09 10:43:42.169 | INFO     | data_layer.tab_2:get_tab2_results:28 - Executing query: q2
+2025-09-09 10:43:42.173 | SUCCESS  | data_layer.tab_2:get_tab2_results:32 - Query q2 executed successfully. Rows returned: 4
+2025-09-09 10:43:42.173 | INFO     | data_layer.tab_2:get_tab2_results:28 - Executing query: q3
+2025-09-09 10:43:42.177 | SUCCESS  | data_layer.tab_2:get_tab2_results:32 - Query q3 executed successfully. Rows returned: 27
+2025-09-09 10:43:42.178 | INFO     | data_layer.tab_2:get_tab2_results:28 - Executing query: q4
+2025-09-09 10:43:42.183 | SUCCESS  | data_layer.tab_2:get_tab2_results:32 - Query q4 executed successfully. Rows returned: 164
+2025-09-09 10:43:42.183 | INFO     | data_layer.tab_2:get_tab2_results:39 - Query execution completed. Successful: 4, Failed: 0
+2025-09-09 10:43:42.183 | INFO     | data_layer.tab_2:get_tab2_results:44 - Database connection closed successfully
+2025-09-09 10:43:43.308 | INFO     | data_layer.tab_2:get_tab2_results:13 - Starting database connection and query execution
+2025-09-09 10:43:43.308 | INFO     | data_layer.tab_2:get_tab2_results:17 - Successfully connected to database: Master on server: localhost
+2025-09-09 10:43:43.308 | INFO     | data_layer.tab_2:get_tab2_results:28 - Executing query: q1
+2025-09-09 10:43:43.341 | SUCCESS  | data_layer.tab_2:get_tab2_results:32 - Query q1 executed successfully. Rows returned: 7
+2025-09-09 10:43:43.341 | INFO     | data_layer.tab_2:get_tab2_results:28 - Executing query: q2
+2025-09-09 10:43:43.344 | SUCCESS  | data_layer.tab_2:get_tab2_results:32 - Query q2 executed successfully. Rows returned: 4
+2025-09-09 10:43:43.345 | INFO     | data_layer.tab_2:get_tab2_results:28 - Executing query: q3
+2025-09-09 10:43:43.348 | SUCCESS  | data_layer.tab_2:get_tab2_results:32 - Query q3 executed successfully. Rows returned: 27
+2025-09-09 10:43:43.348 | INFO     | data_layer.tab_2:get_tab2_results:28 - Executing query: q4
+2025-09-09 10:43:43.353 | SUCCESS  | data_layer.tab_2:get_tab2_results:32 - Query q4 executed successfully. Rows returned: 164
+2025-09-09 10:43:43.353 | INFO     | data_layer.tab_2:get_tab2_results:39 - Query execution completed. Successful: 4, Failed: 0
+2025-09-09 10:43:43.353 | INFO     | data_layer.tab_2:get_tab2_results:44 - Database connection closed successfully

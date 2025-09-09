@@ -1,122 +1,69 @@
 first_sql_map = {
     "q1": """
         SELECT 
-            DATEPART(WEEK, r.registration_date) AS week_number,
-            DATENAME(WEEK, r.registration_date) AS week_start_date,
-            COUNT(*) AS total_registrations,
-            COUNT(DISTINCT r.sales_center_code) AS active_outlets,
-            COUNT(DISTINCT r.salesman_id) AS active_salespeople
-        FROM REG_VehicleRegistrations r
-        WHERE r.registration_date >= '2025-06-01' 
-          AND r.registration_date < '2025-07-01'
-          AND r.registration_date IS NOT NULL
-          AND (
-              (r.loan_amount_approved IS NOT NULL AND r.loan_amount_approved <> 0)  
-               OR r.on_the_road_price IS NOT NULL
-          )
-        GROUP BY 
-            DATEPART(WEEK, r.registration_date),
-            DATENAME(WEEK, r.registration_date)
-        ORDER BY week_number;
+            rgn,
+            COUNT(*) AS total_outlets,
+            AVG(total_score) AS avg_total_score,
+            AVG(rank_nationwide) AS avg_national_rank,
+            AVG(rank_region) AS avg_regional_rank
+        FROM master.cr_kpi.kpi_outlet
+        GROUP BY rgn
+        ORDER BY avg_total_score DESC;
     """,
 
     "q2": """
         SELECT 
-            DATEPART(WEEK, r.registration_date) AS week_number,
-            o.outlet_category,
-            COUNT(*) AS registrations,
-            ROUND(
-                COUNT(*) * 100.0 
-                / SUM(COUNT(*)) OVER (PARTITION BY DATEPART(WEEK, r.registration_date)),
-                2
-            ) AS market_share_percent
-        FROM REG_VehicleRegistrations r
-        JOIN Outlet_Master o ON r.sales_center_code = o.sales_center_code
-        WHERE r.registration_date >= '2025-06-01' 
-          AND r.registration_date < '2025-07-01'
-          AND r.registration_date IS NOT NULL
-          AND (
-              (r.loan_amount_approved IS NOT NULL AND r.loan_amount_approved <> 0)  
-               OR r.on_the_road_price IS NOT NULL
-          )
-        GROUP BY 
-            DATEPART(WEEK, r.registration_date),
-            o.outlet_category
-        ORDER BY week_number, outlet_category;
+            outlet_category,
+            COUNT(*) AS outlets_in_category,
+            AVG(total_score) AS avg_total_score,
+            AVG(new_car_reg_unit) AS avg_new_car_reg,
+            AVG(intake_unit) AS avg_intake_units,
+            AVG(revenue_pct) AS avg_revenue_performance
+        FROM master.cr_kpi.kpi_outlet
+        GROUP BY outlet_category
+        ORDER BY avg_total_score DESC;
     """,
 
     "q3": """
         SELECT 
-            DATEPART(WEEK, r.registration_date) AS week_number,
-            o.outlet_category,
-            o.service_type,
-            COUNT(*) AS registrations,
-            ROUND(
-                COUNT(*) * 100.0 
-                / SUM(COUNT(*)) OVER (
-                    PARTITION BY DATEPART(WEEK, r.registration_date), o.outlet_category
-                ),
-                2
-            ) AS category_share_percent
-        FROM REG_VehicleRegistrations r
-        JOIN Outlet_Master o ON r.sales_center_code = o.sales_center_code
-        WHERE r.registration_date >= '2025-06-01' 
-          AND r.registration_date < '2025-07-01'
-          AND r.registration_date IS NOT NULL
-          AND (
-              (r.loan_amount_approved IS NOT NULL AND r.loan_amount_approved <> 0)  
-               OR r.on_the_road_price IS NOT NULL
-          )
-        GROUP BY 
-            DATEPART(WEEK, r.registration_date),
-            o.outlet_category,
-            o.service_type
-        ORDER BY week_number, outlet_category, service_type;
+            rgn,
+            outlet_category,
+            COUNT(*) AS outlet_count,
+            AVG(total_score) AS avg_total_score,
+            AVG(rank_nationwide) AS avg_national_rank,
+            AVG(rank_region) AS avg_regional_rank
+        FROM master.cr_kpi.kpi_outlet
+        GROUP BY rgn, outlet_category
+        ORDER BY rgn, avg_total_score DESC;
     """,
 
     "q4": """
-        SELECT 
-            DATEPART(WEEK, r.registration_date) AS week_number,
-            o.region,
-            o.state,
-            COUNT(*) AS registrations,
-            COUNT(DISTINCT r.sales_center_code) AS outlets_active
-        FROM REG_VehicleRegistrations r
-        JOIN Outlet_Master o ON r.sales_center_code = o.sales_center_code
-        WHERE r.registration_date >= '2025-06-01' 
-          AND r.registration_date < '2025-07-01'
-          AND r.registration_date IS NOT NULL
-          AND (
-              (r.loan_amount_approved IS NOT NULL AND r.loan_amount_approved <> 0)  
-               OR r.on_the_road_price IS NOT NULL
-          )
-        GROUP BY 
-            DATEPART(WEEK, r.registration_date),
-            o.region,
-            o.state
-        ORDER BY week_number, region, state;
+        SELECT TOP 20
+            sales_outlet,
+            rgn,
+            outlet_category,
+            total_score,
+            rank_nationwide,
+            rank_region,
+            new_car_reg_unit,
+            intake_unit,
+            revenue_pct
+        FROM master.cr_kpi.kpi_outlet
+        ORDER BY total_score DESC;
     """,
 
     "q5": """
-        SELECT 
-            DATEPART(WEEK, r.registration_date) AS week_number,
-            o.outlet_category,
-            r.customer_category,
-            COUNT(*) AS registrations,
-            ROUND(AVG(CAST(r.data_completeness_score AS FLOAT)) * 100, 1) AS avg_data_quality_percent
-        FROM REG_VehicleRegistrations r
-        JOIN Outlet_Master o ON r.sales_center_code = o.sales_center_code
-        WHERE r.registration_date >= '2025-06-01' 
-          AND r.registration_date < '2025-07-01'
-          AND r.registration_date IS NOT NULL
-          AND (
-              (r.loan_amount_approved IS NOT NULL AND r.loan_amount_approved <> 0)  
-               OR r.on_the_road_price IS NOT NULL
-          )
-        GROUP BY 
-            DATEPART(WEEK, r.registration_date),
-            o.outlet_category,
-            r.customer_category
-        ORDER BY week_number, outlet_category, customer_category;
+        SELECT TOP 20
+            sales_outlet,
+            rgn,
+            outlet_category,
+            total_score,
+            rank_nationwide,
+            rank_region,
+            new_car_reg_unit,
+            intake_unit,
+            revenue_pct
+        FROM master.cr_kpi.kpi_outlet
+        ORDER BY total_score ASC;
     """
 }
