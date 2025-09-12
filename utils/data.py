@@ -12,6 +12,5 @@ def uniq(series_list):
 
 def pack_df(df: pd.DataFrame, max_rows: int = 300):
     """Pack a DataFrame into a light dict for JSON transport and table preview."""
-    recs = df.head(max_rows).to_dict('records')
+    recs = df.head(max_rows).to_dict("records")
     return {"columns": list(df.columns), "records": recs, "n_rows": int(len(df))}
-

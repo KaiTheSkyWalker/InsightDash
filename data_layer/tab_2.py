@@ -1,51 +1,24 @@
-from sqlalchemy import create_engine
 import pandas as pd
-from loguru import logger
-
 from sql_queries.sheet2 import second_sql_map
-from config.settings import CONNECTION_URI, DB_DATABASE, DB_SERVER
+from .base import execute_queries
 
-
-tab_logger = logger.bind(tab="Tab2")
-
-def get_tab2_results():
-    """Execute all SQL queries and return results as dictionary of DataFrames"""
-    tab_logger.info("Starting database connection and query execution")
-    
-    try:
-        engine = create_engine(CONNECTION_URI)
-        tab_logger.info(f"Successfully connected to database: {DB_DATABASE} on server: {DB_SERVER}")
-    except Exception as e:
-        tab_logger.error(f"Failed to create database engine: {e}")
-        return {}
-    
-    results = {}
-    successful_queries = 0
-    failed_queries = 0
-    
-    for key, query in second_sql_map.items():
-        try:
-            tab_logger.info(f"Executing query: {key}")
-            df = pd.read_sql(query, engine)
-            results[key] = df
-            successful_queries += 1
-            tab_logger.success(f"Query {key} executed successfully. Rows returned: {len(df)}")
-        except Exception as e:
-            failed_queries += 1
-            tab_logger.error(f"Error executing query {key}: {e}")
-            results[key] = pd.DataFrame()  # Return empty DataFrame on failure
-    
-    # Log summary
-    tab_logger.info(f"Query execution completed. Successful: {successful_queries}, Failed: {failed_queries}")
-    
-    # Close the connection
-    try:
-        engine.dispose()
-        tab_logger.info("Database connection closed successfully")
-    except Exception as e:
-        tab_logger.warning(f"Error while closing database connection: {e}")
-    
+def remap_tab2(results: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    if "q1" not in results:
+        base_key = "dynamic-scatter-plot" if "dynamic-scatter-plot" in results else None
+        if base_key:
+            results["q1"] = results.get(base_key, pd.DataFrame())
+        else:
+            # Fallback: pick any with KPI % columns
+            for k, df in results.items():
+                cols = set(df.columns)
+                if {"rgn", "outlet_category"} <= cols and (
+                    {"cs_sales_pct", "new_car_reg_pct"} & cols
+                ):
+                    results["q1"] = df
+                    break
+            results.setdefault("q1", pd.DataFrame())
     return results
 
-
-    
+def get_tab2_results():
+    """Execute SQL for Tab 2 and normalize keys."""
+    return execute_queries(second_sql_map, "Tab2", remap_tab2)

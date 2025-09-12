@@ -30,4 +30,3 @@ def configure_logging():
         filter=lambda r: r["extra"].get("tab") == "Tab2",
     )
     # Tab3 mostly logs UI events; keep console only. Add a file sink if desired.
-

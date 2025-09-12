@@ -3,33 +3,100 @@ from itertools import cycle, islice
 # Base palette for charts (high‑contrast blue family)
 # Ordered from darkest → lightest for good separation when cycled.
 base_palette = [
-    '#0B2E4E',  # Deep Navy
-    '#1E3A8A',  # Indigo 800
-    '#1D4ED8',  # Blue 700
-    '#2563EB',  # Blue 600
-    '#3B82F6',  # Blue 500
-    '#60A5FA',  # Blue 400
-    '#0EA5E9',  # Sky 500
-    '#38BDF8',  # Sky 400
-    '#0891B2',  # Cyan 700 (blue-leaning)
-    '#06B6D4',  # Cyan 500 (blue-leaning)
-    '#93C5FD',  # Blue 300
-    '#BFDBFE',  # Blue 200
+    "#0B2E4E",  # Deep Navy
+    "#1E3A8A",  # Indigo 800
+    "#1D4ED8",  # Blue 700
+    "#2563EB",  # Blue 600
+    "#3B82F6",  # Blue 500
+    "#60A5FA",  # Blue 400
+    "#0EA5E9",  # Sky 500
+    "#38BDF8",  # Sky 400
+    "#0891B2",  # Cyan 700 (blue-leaning)
+    "#06B6D4",  # Cyan 500 (blue-leaning)
+    "#93C5FD",  # Blue 300
+    "#BFDBFE",  # Blue 200
 ]
 
 # High-contrast categorical palette for scatter plots (more differentiable)
 diverse_palette = [
-    '#2563EB',  # Blue
-    '#D97706',  # Amber 700
-    '#059669',  # Emerald 600
-    '#7C3AED',  # Violet 600
-    '#DC2626',  # Red 600
-    '#0EA5E9',  # Sky 500
-    '#F59E0B',  # Amber 500
-    '#10B981',  # Emerald 500
-    '#8B5CF6',  # Violet 500
-    '#EF4444',  # Red 500
+    "#2563EB",  # Blue
+    "#D97706",  # Amber 700
+    "#059669",  # Emerald 600
+    "#7C3AED",  # Violet 600
+    "#DC2626",  # Red 600
+    "#0EA5E9",  # Sky 500
+    "#F59E0B",  # Amber 500
+    "#10B981",  # Emerald 500
+    "#8B5CF6",  # Violet 500
+    "#EF4444",  # Red 500
 ]
+
+# Ultra-contrast monochrome-blue theme (dark navy → vivid blues → cyan → light blues)
+ultra_blue_palette = [
+    "#001B44",  # Deep Navy (very dark)
+    "#0B2E4E",  # Navy
+    "#004080",  # Strong navy-blue
+    "#0069D9",  # Vivid blue
+    "#1D4ED8",  # Blue 700
+    "#2563EB",  # Blue 600
+    "#3B82F6",  # Blue 500
+    "#60A5FA",  # Blue 400
+    "#0EA5E9",  # Sky 500
+    "#00B3FF",  # Bright cyan
+    "#93C5FD",  # Blue 300
+    "#BFDBFE",  # Blue 200
+]
+
+# Purple–Blue–Green high‑contrast theme
+# Purple–Blue–Green high‑contrast theme
+pbg_palette = [
+    "#7C3AED",  # Purple 600
+    "#1D4ED8",  # Blue 700
+    "#059669",  # Green 600
+    "#A78BFA",  # Purple 300
+    "#60A5FA",  # Blue 400
+    "#34D399",  # Green 400
+]
+
+# Purple–Green–Blue–Orange mixed palette (high contrast, multiple shades)
+# Purple–Green–Blue–Orange mixed palette (high contrast, multiple shades)
+pgbo_palette = [
+    "#6D28D9",  # Purple 700
+    "#FFE600",  # Purple 600
+    "#A78BFA",  # Purple 300
+    "#065F46",  # Green 800
+    "#CD2598",  # Green 600
+    "#34D399",  # Green 400
+    "#1E3A8A",  # Blue 800
+    "#1D4ED8",  # Blue 700
+    "#60A5FA",  # Blue 400
+    "#D97706",  # Orange 600
+    "#F59E0B",  # Orange 500
+    "#FB923C",  # Orange 400
+]
+
+# Brand palette from user (Lush Aqua, Jungle Book Green, Dewberry, Harissa Red, Moscow Papyrus, Bright Orange, Pale Narcissus)
+brand_palette = [
+    "#004365",
+    "#366A51",
+    "#8D5489",
+    "#A52A2A",
+    "#947D05",
+    "#FF6F30",
+    "#FAF3E0",
+]
+
+# Consistent category colors (A/B/C/D) across all tabs
+CATEGORY_COLOR_MAP = {
+    "A": "#004365",  # Lush Aqua
+    "B": "#366A51",  # Jungle Book Green
+    "C": "#8D5489",  # Dewberry
+    "D": "#FF6F30",  # Bright Orange
+}
+
+
+def category_color_map():
+    return dict(CATEGORY_COLOR_MAP)
 
 
 def color_map_from_list(keys, palette=base_palette):
@@ -40,11 +107,12 @@ def color_map_from_list(keys, palette=base_palette):
 
 # Consistent colors for performance tiers across the app (well‑separated blues)
 TIER_COLOR_MAP = {
-    'HIGH_PERFORMER': '#1E3A8A',   # Dark indigo
-    'GOOD_PERFORMER': '#2563EB',   # Strong blue
-    'AVERAGE_PERFORMER': '#0EA5E9',# Sky / cyan (blue‑leaning)
-    'NEEDS_IMPROVEMENT': '#93C5FD' # Light blue
+    "HIGH_PERFORMER": "#1E3A8A",  # Dark indigo
+    "GOOD_PERFORMER": "#2563EB",  # Strong blue
+    "AVERAGE_PERFORMER": "#0EA5E9",  # Sky / cyan (blue‑leaning)
+    "NEEDS_IMPROVEMENT": "#93C5FD",  # Light blue
 }
+
 
 def tier_color_map():
     return dict(TIER_COLOR_MAP)

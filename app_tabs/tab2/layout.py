@@ -1,74 +1,137 @@
 from dash import dcc, html
+from app_tabs.tab3.figures import KPI_DISPLAY
 
 
 def get_layout():
-    """Return Tab 2 layout containing five graphs (q1..q4b) with select buttons."""
+    """Return Tab 2 layout with dynamic correlation scatter plus existing charts."""
     btn_style = {}
-    wrap_style = {'width': '98%', 'display': 'inline-block', 'verticalAlign': 'top'}
-    return html.Div([
-        html.Div([
-            html.Div([
-                html.Div([
-                    html.Div("Regional Efficiency Metrics", className='graph-title'),
-                    html.Div([
-                        html.Button("Select this graph", id='btn-select-t2-q1', n_clicks=0, style=btn_style),
-                        html.Button("View data", id='btn-view-t2-q1', n_clicks=0, style={'marginLeft': '8px'})
-                    ], className='graph-actions-row')
-                ], className='graph-header'),
-                dcc.Graph(id='t2-graph-q1')
-            ]),
-            html.Div(id='table-t2-q1')
-        ], style=wrap_style),
-        html.Div([
-            html.Div([
-                html.Div([
-                    html.Div("Outlet Category Efficiency Metrics", className='graph-title'),
-                    html.Div([
-                        html.Button("Select this graph", id='btn-select-t2-q2', n_clicks=0, style=btn_style),
-                        html.Button("View data", id='btn-view-t2-q2', n_clicks=0, style={'marginLeft': '8px'})
-                    ], className='graph-actions-row')
-                ], className='graph-header'),
-                dcc.Graph(id='t2-graph-q2')
-            ]),
-            html.Div(id='table-t2-q2')
-        ], style=wrap_style),
-        html.Div([
-            html.Div([
-                html.Div([
-                    html.Div("Region × Category (Avg New Car Reg)", className='graph-title'),
-                    html.Div([
-                        html.Button("Select this graph", id='btn-select-t2-q3', n_clicks=0, style=btn_style),
-                        html.Button("View data", id='btn-view-t2-q3', n_clicks=0, style={'marginLeft': '8px'})
-                    ], className='graph-actions-row')
-                ], className='graph-header'),
-                dcc.Graph(id='t2-graph-q3')
-            ]),
-            html.Div(id='table-t2-q3')
-        ], style=wrap_style),
-        html.Div([
-            html.Div([
-                html.Div([
-                    html.Div("Top Outlets by New Car Reg", className='graph-title'),
-                    html.Div([
-                        html.Button("Select this graph", id='btn-select-t2-q4a', n_clicks=0, style=btn_style),
-                        html.Button("View data", id='btn-view-t2-q4a', n_clicks=0, style={'marginLeft': '8px'})
-                    ], className='graph-actions-row')
-                ], className='graph-header'),
-                dcc.Graph(id='t2-graph-q4a')
-            ]),
-            html.Div(id='table-t2-q4a')
-        ], style=wrap_style),
-        html.Div([
-            html.Div([
-                html.Div([
-                    html.Div("Outlet Registration% vs NPS", className='graph-title'),
-                    html.Div([
-                        html.Button("Select this graph", id='btn-select-t2-q4b', n_clicks=0, style=btn_style),
-                        html.Button("View data", id='btn-view-t2-q4b', n_clicks=0, style={'marginLeft': '8px'})
-                    ], className='graph-actions-row')
-                ], className='graph-header'),
-                dcc.Graph(id='t2-graph-q4b')
-            ]),
-            html.Div(id='table-t2-q4b')
-        ], style=wrap_style),
-    ], style={'paddingTop': '10px'})
+    wrap_style = {"width": "98%", "display": "inline-block", "verticalAlign": "top"}
+    return html.Div(
+        [
+            # Local store to keep Tab 2 selection independent from global filters
+            dcc.Store(id="t2-selected-region", data=None),
+            dcc.Store(id="t2-toast", data=None),
+            # Dynamic parameter correlation controls + graph
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Div(
+                                        "Explore Parameter Relationships",
+                                        className="graph-title",
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Button(
+                                                "Select this graph",
+                                                id="btn-select-t2-dyn",
+                                                n_clicks=0,
+                                                style=btn_style,
+                                            ),
+                                            html.Button(
+                                                "View data",
+                                                id="btn-view-t2-dyn",
+                                                n_clicks=0,
+                                                style={"marginLeft": "8px"},
+                                            ),
+                                        ],
+                                        className="graph-actions-row",
+                                    ),
+                                ],
+                                className="graph-header",
+                            ),
+                            html.Div(
+                                [
+                                    html.Div(
+                                        [
+                                            html.Label("X"),
+                                            dcc.Dropdown(
+                                                id="t2-x-param",
+                                                options=[
+                                                    {
+                                                        "label": f"{label} %",
+                                                        "value": col,
+                                                    }
+                                                    for col, label in KPI_DISPLAY
+                                                ],
+                                                placeholder="Select parameter (X-axis)",
+                                                value="cs_service_pct",
+                                            ),
+                                        ],
+                                        style={
+                                            "width": "32%",
+                                            "display": "inline-block",
+                                        },
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Label("Y"),
+                                            dcc.Dropdown(
+                                                id="t2-y-param",
+                                                options=[
+                                                    {
+                                                        "label": f"{label} %",
+                                                        "value": col,
+                                                    }
+                                                    for col, label in KPI_DISPLAY
+                                                ],
+                                                placeholder="Select parameter (Y-axis)",
+                                                value="revenue_pct",
+                                            ),
+                                        ],
+                                        style={
+                                            "width": "32%",
+                                            "display": "inline-block",
+                                        },
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Label("Legend"),
+                                            dcc.Dropdown(
+                                                id="t2-color-dim",
+                                                options=[
+                                                    {"label": "Region", "value": "rgn"},
+                                                    {
+                                                        "label": "Outlet Category",
+                                                        "value": "outlet_category",
+                                                    },
+                                                    {
+                                                        "label": "Outlet Type",
+                                                        "value": "outlet_type",
+                                                    },
+                                                ],
+                                                placeholder="Color by... (Legend)",
+                                                value="outlet_category",
+                                            ),
+                                        ],
+                                        style={
+                                            "width": "32%",
+                                            "display": "inline-block",
+                                        },
+                                    ),
+                                ],
+                                style={
+                                    "margin": "8px 0",
+                                    "display": "flex",
+                                    "justifyContent": "space-between",
+                                },
+                            ),
+                            html.Div(
+                                [
+                                    dcc.Graph(
+                                        id="t2-graph-dynamic", style={"height": "620px"}
+                                    )
+                                ],
+                                style={"position": "relative"},
+                            ),
+                        ]
+                    ),
+                    html.Div(id="table-t2-dyn"),
+                ],
+                style=wrap_style,
+            ),
+        ],
+        style={"paddingTop": "10px"},
+    )

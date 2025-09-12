@@ -2,79 +2,179 @@ from dash import dcc, html
 
 
 def get_layout():
-    """Return Tab 3 layout for Alternative 1 (Compare & Rank).
+    """Tab 3 layout per spec: Category and Type Diagnostics.
 
-    - Chart 1: Grouped weekly bars by category
-    - Chart 2: Quadrant scatter
-    - Chart 3: 100% stacked tier contribution
-    - Chart 4 area: KPI cards + Top performers DataTable
-    - Chart 5: Treemap (kept)
+    - Layer 1: Diverging Bar — full width
+    - Layer 2: Radar (full width)
     """
-    return html.Div([
-        # Row 1
-        html.Div([
-            html.Div([
-                html.Div([
-                    html.Div("Regional Value & Ops Metrics", className='graph-title'),
-                    html.Div([
-                        html.Button("Select this graph", id='btn-select-t3-1', n_clicks=0),
-                        html.Button("View data", id='btn-view-t3-1', n_clicks=0, style={'marginLeft': '8px'})
-                    ], className='graph-actions-row')
-                ], className='graph-header'),
-                dcc.Graph(id='t3-graph-1'),
-                html.Div(id='table-t3-1')
-            ], style={'width': '49%', 'display': 'inline-block', 'verticalAlign': 'top'}),
-            html.Div([
-                html.Div([
-                    html.Div("Category Value & Ops Metrics", className='graph-title'),
-                    html.Div([
-                        html.Button("Select this graph", id='btn-select-t3-2', n_clicks=0),
-                        html.Button("View data", id='btn-view-t3-2', n_clicks=0, style={'marginLeft': '8px'})
-                    ], className='graph-actions-row')
-                ], className='graph-header'),
-                dcc.Graph(id='t3-graph-2'),
-                html.Div(id='table-t3-2')
-            ], style={'width': '49%', 'display': 'inline-block', 'verticalAlign': 'top'}),
-        ]),
-
-        # Row 2
-        html.Div([
-            html.Div([
-                html.Div([
-                    html.Div("Region × Category (Quality Index)", className='graph-title'),
-                    html.Div([
-                        html.Button("Select this graph", id='btn-select-t3-3', n_clicks=0),
-                        html.Button("View data", id='btn-view-t3-3', n_clicks=0, style={'marginLeft': '8px'})
-                    ], className='graph-actions-row')
-                ], className='graph-header'),
-                dcc.Graph(id='t3-graph-3'),
-                html.Div(id='table-t3-3')
-            ], style={'width': '49%', 'display': 'inline-block', 'verticalAlign': 'top'}),
-            html.Div([
-                html.Div([
-                    html.Div("Top Service Outlets by Intake Units", className='graph-title'),
-                    html.Div([
-                        html.Button("Select this graph", id='btn-select-t3-4', n_clicks=0),
-                        html.Button("View data", id='btn-view-t3-4', n_clicks=0, style={'marginLeft': '8px'})
-                    ], className='graph-actions-row')
-                ], className='graph-header'),
-                dcc.Graph(id='t3-graph-4'),
-                html.Div(id='table-t3-4')
-            ], style={'width': '49%', 'display': 'inline-block', 'verticalAlign': 'top'}),
-        ], style={'marginTop': '10px'}),
-
-        # Row 3
-        html.Div([
-            html.Div([
-                html.Div([
-                    html.Div("Service CS% vs QPI%", className='graph-title'),
-                    html.Div([
-                        html.Button("Select this graph", id='btn-select-t3-5', n_clicks=0),
-                        html.Button("View data", id='btn-view-t3-5', n_clicks=0, style={'marginLeft': '8px'})
-                    ], className='graph-actions-row')
-                ], className='graph-header'),
-                dcc.Graph(id='t3-graph-5'),
-                html.Div(id='table-t3-5')
-            ]),
-        ], style={'width': '98%', 'display': 'inline-block', 'verticalAlign': 'top', 'marginTop': '10px'}),
-    ], style={'paddingTop': '10px'})
+    half = {"width": "49%", "display": "inline-block", "verticalAlign": "top"}
+    full = {
+        "width": "98%",
+        "display": "inline-block",
+        "verticalAlign": "top",
+        "marginTop": "10px",
+    }
+    return html.Div(
+        [
+            dcc.Store(id="t3-active-table-store", data=None),
+            # Layer 1: Diverging Bar (Category Overview)
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Div(
+                                        "What's Holding Back B, C, & D Outlets?",
+                                        className="graph-title",
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Button(
+                                                "Select this graph",
+                                                id="btn-select-t3-1",
+                                                n_clicks=0,
+                                            ),
+                                            # Distinct keys ensure Dash treats these as separate controls
+                                            html.Button(
+                                                "View complete data",
+                                                id="btn-view-t3-1",
+                                                n_clicks=0,
+                                                key="t3-view-q1",
+                                                style={"marginLeft": "8px"},
+                                            ),
+                                            html.Button(
+                                                "View data",
+                                                id="btn-view-t3-1-new",
+                                                n_clicks=0,
+                                                key="t3-view-q2",
+                                                style={"marginLeft": "8px"},
+                                            ),
+                                        ],
+                                        className="graph-actions-row",
+                                    ),
+                                ],
+                                className="graph-header",
+                            ),
+                            dcc.Graph(id="t3-graph-1", style={"height": "520px"}),
+                            # Two separate containers for the two datasets
+                            html.Div(id="table-t3-1"),
+                            html.Div(id="table-t3-2"),
+                        ],
+                        style=full,
+                    ),
+                ]
+            ),
+            # Layer 2: Radar group header (overall title + buttons)
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Div(
+                                        "Outlet Type Capability Profiles",
+                                        className="graph-title",
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Button(
+                                                "Select this graph",
+                                                id="btn-select-t3-3",
+                                                n_clicks=0,
+                                            ),
+                                            html.Button(
+                                                "View data",
+                                                id="btn-view-t3-3",
+                                                n_clicks=0,
+                                                style={"marginLeft": "8px"},
+                                            ),
+                                        ],
+                                        className="graph-actions-row",
+                                    ),
+                                ],
+                                className="graph-header",
+                            ),
+                            # Independent table container for profiles section
+                            html.Div(id="table-t3-3"),
+                        ],
+                        style=full,
+                    ),
+                ],
+                style={"marginTop": "10px"},
+            ),
+            # Layer 2: Radars (four outlet types)
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Div(
+                                        "1S — Average Performance Profile",
+                                        className="graph-title",
+                                    ),
+                                ],
+                                className="graph-header",
+                            ),
+                            dcc.Graph(id="t3-graph-2", style={"height": "520px"}),
+                        ],
+                        style=half,
+                    ),
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Div(
+                                        "2S — Average Performance Profile",
+                                        className="graph-title",
+                                    ),
+                                ],
+                                className="graph-header",
+                            ),
+                            dcc.Graph(id="t3-graph-2-2s", style={"height": "520px"}),
+                        ],
+                        style=half,
+                    ),
+                ],
+                style={"marginTop": "10px"},
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Div(
+                                        "1+2S — Average Performance Profile",
+                                        className="graph-title",
+                                    ),
+                                ],
+                                className="graph-header",
+                            ),
+                            dcc.Graph(id="t3-graph-2-1p2s", style={"height": "520px"}),
+                        ],
+                        style=half,
+                    ),
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Div(
+                                        "3S — Average Performance Profile",
+                                        className="graph-title",
+                                    ),
+                                ],
+                                className="graph-header",
+                            ),
+                            dcc.Graph(id="t3-graph-2-3s", style={"height": "520px"}),
+                        ],
+                        style=half,
+                    ),
+                ],
+                style={"marginTop": "10px"},
+            ),
+            # Remove supporting scatter and placeholders per new spec (two charts only)
+        ],
+        style={"paddingTop": "10px"},
+    )
