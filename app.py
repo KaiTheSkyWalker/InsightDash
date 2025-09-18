@@ -5,7 +5,26 @@ from dash import dash_table
 from dash.exceptions import PreventUpdate
 import pandas as pd
 import json
-from dash_resizable_panels import PanelGroup, Panel, PanelResizeHandle
+try:
+    from dash_resizable_panels import PanelGroup, Panel, PanelResizeHandle
+except Exception:
+    # Fallback: provide minimal stubs so the app can run without the optional package
+    from dash import html as _html_stub
+
+    class _PanelBase(_html_stub.Div):
+        def __init__(self, *args, **kwargs):
+            # Normalize to Div signature: keep children and style/id props
+            children = kwargs.pop("children", None)
+            super().__init__(children=children, **kwargs)
+
+    class PanelGroup(_PanelBase):
+        pass
+
+    class Panel(_PanelBase):
+        pass
+
+    class PanelResizeHandle(_PanelBase):
+        pass
 import os
 
 
@@ -13,7 +32,8 @@ from data_layer.tab_1 import get_tab1_results
 from data_layer.tab_2 import get_tab2_results
 from data_layer.tab_3 import get_tab3_results
 from config.settings import GOOGLE_API_KEY, MODEL_NAME
-from services.llm import generate_markdown_from_prompt, generate_markdown_openrouter
+from services.llm import generate_markdown_from_prompt
+from services.insights import summarize_chart_via_chunks, synthesize_across_charts
 from services.prompts import build_prompt_individual
 from utils.data import uniq, pack_df
 from utils.colors import (
@@ -37,6 +57,8 @@ from app_tabs.tab3.figures import (
     get_filtered_frames_simple as t3_get_filtered_frames,
     KPI_DISPLAY,
 )
+from app_tabs.tab_compare.layout import get_layout as compare_layout
+from app_tabs.tab_compare.figures import build_compare_figures
 from app_tabs.tab2.figures import get_filtered_frames as t2_get_filtered_frames
 from config.logging import configure_logging
 
@@ -138,14 +160,14 @@ def _ensure_tab1_defaults(data_dict: dict | None) -> dict:
     }
 
 
-def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
+def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets: dict | None = None):
     """
     Dash app with cross-filtering, stable colors, multi-chart select,
     and Gemini-based summarizer in a resizable, toggleable sidebar.
     """
     # local aliases for datasets (prevents NameError in inner functions)
     tab1 = _ensure_tab1_defaults(data_dict or {})
-    tab2 = data_dict_2 or {}
+    # Keep references to inputs; avoid unused local alias
 
     app = dash.Dash(
         __name__,
@@ -222,6 +244,14 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
     # KPI columns in sheet2/3 (achievement %)
     # Removed unused KPI_COLUMNS constant in cleanup.
 
+    # ----- Month combination helper -----
+    def combine_months(filters: dict | None, tab_key: str) -> dict:
+        from utils.dataframe import combine_month_frames
+        months = list((filters or {}).get("months") or ["March"])
+        if not monthly_datasets:
+            return {**(data_dict if tab_key == "tab1" else (data_dict_2 if tab_key == "tab2" else (data_dict_3 or {})))}
+        return combine_month_frames(monthly_datasets, months, tab_key)
+
     # Default filters implement the pasted rules (global slicers)
     default_filters = {
         "outlet_categories": [],  # A/B/C/D
@@ -235,6 +265,10 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         # KPI selector
         "kpi_group": "All",  # All | Performance | Quality
         "kpi_single": None,  # specific KPI column name
+        # Month selection (labels in monthly_datasets)
+        "months": ["March"],
+        # Compare months (do not pool for insights generation)
+        "compare_months": False,
     }
 
     GRAPH_LABELS = {
@@ -254,7 +288,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         "t2-graph-dyn": "Explore Parameter Relationships",
         # Tab 3 (Performance Analyzer)
         "t3-graph-1": "What's Holding Back B, C, & D Outlets?",
-        "t3-graph-2": "Average Performance Profile by Outlet Type",
+        "t3-graph-2": "Outlet Type Capability Profiles",
         "t3-graph-3": "Outlet Spread within Selected Category",
         "t3-graph-4": "—",
         # 't3-graph-5': '—',
@@ -267,7 +301,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                 id="main-panel-group",
                 direction="horizontal",
                 autoSaveId="vrdb-split",  # persist widths
-                style={"height": "100dvh", "minHeight": 0},
+                style={"height": "100%", "minHeight": 0},
                 children=[
                     # Main Content Panel
                     Panel(
@@ -361,6 +395,20 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                                                 ),
                                                 style={"flex": "1", "margin": "0 10px"},
                                             ),
+                                            html.Div(
+                                                dcc.Dropdown(
+                                                    id="month-filter",
+                                                    placeholder="Select Month(s)",
+                                                    options=[
+                                                        {"label": "March", "value": "March"},
+                                                        {"label": "May", "value": "May"},
+                                                    ],
+                                                    value=["March"],
+                                                    multi=True,
+                                                ),
+                                                style={"flex": "1", "margin": "0 10px"},
+                                            ),
+                                            # Removed top-row 'Compare Months' toggle (moved to sidebar)
                                             html.Button(
                                                 "Reset All Filters",
                                                 id="reset-button",
@@ -402,6 +450,11 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                                                 value="tab3",
                                                 children=[tab3_layout()],
                                             ),
+                                            dcc.Tab(
+                                                label="Month Comparison",
+                                                value="tab4",
+                                                children=[compare_layout()],
+                                            ),
                                         ],
                                         style={"marginTop": "10px"},
                                     ),
@@ -409,7 +462,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                                 style={"padding": "20px"},
                             ),
                         ],
-                        style={"height": "100vh", "overflowY": "auto"},
+                        style={"height": "100%", "minHeight": 0, "overflowY": "auto"},
                     ),
                     PanelResizeHandle(
                         id="sidebar-resize-handle",
@@ -524,16 +577,33 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                                                         "label": "Gemini (default)",
                                                         "value": "gemini",
                                                     },
-                                                    {
-                                                        "label": "OpenRouter: DeepSeek R1",
-                                                        "value": "openrouter",
-                                                    },
                                                 ],
                                                 value="gemini",
                                                 labelStyle={
                                                     "display": "block",
                                                     "marginTop": "5px",
                                                 },
+                                            ),
+                                        ],
+                                        style={"marginTop": "4px"},
+                                    ),
+                                    # Compare Months toggle (sidebar)
+                                    html.Div(
+                                        [
+                                            html.Label(
+                                                "Compare Months",
+                                                style={
+                                                    "fontWeight": "bold",
+                                                    "fontSize": "14px",
+                                                    "marginTop": "12px",
+                                                },
+                                            ),
+                                            dcc.Checklist(
+                                                id="month-compare-toggle-side",
+                                                options=[{"label": "", "value": "compare"}],
+                                                value=[],
+                                                className="switch-toggle",
+                                                inline=True,
                                             ),
                                         ],
                                         style={"marginTop": "4px"},
@@ -600,14 +670,14 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                             "minWidth": 0,
                             "width": 0,
                             "display": "none",
-                            "height": "100vh",
+                            "height": "100%",
                             "backgroundColor": "#f8f9fa",
                         },
                     ),
                 ],
             )
         ],
-        style={"height": "100vh", "fontFamily": '"Roboto", sans-serif'},
+        style={"minHeight": "100vh", "height": "100%", "fontFamily": '"Roboto", sans-serif'},
     )
 
     # ----- Toggle sidebar visibility -----
@@ -632,13 +702,13 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             if not opened_once:
                 # First open at 25% of the screen width
                 panel_style = {
-                    "height": "100vh",
+                    "height": "100%",
                     "backgroundColor": "#f8f9fa",
                     "width": "25%",
                 }
                 new_store = {"visible": True, "opened_once": True}
             else:
-                panel_style = {"height": "100vh", "backgroundColor": "#f8f9fa"}
+                panel_style = {"height": "100%", "backgroundColor": "#f8f9fa"}
                 new_store = {"visible": True, "opened_once": True}
             handle_style = {
                 "width": "5px",
@@ -652,7 +722,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                 "minWidth": 0,
                 "width": 0,
                 "display": "none",
-                "height": "100vh",
+                "height": "100%",
                 "backgroundColor": "#f8f9fa",
             }
             handle_style = {"display": "none"}
@@ -682,6 +752,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         State("selected-graphs", "data"),
         State("selected-data", "data"),
         State("filter-store", "data"),
+        State("tab3-filter-store", "data"),
         State("insight-mode-radio", "value"),
         State("model-provider", "value"),
         # Include latest Tab 2 axis/legend selections so prompts always reflect current UI state
@@ -695,6 +766,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         selected_graphs,
         selected_data,
         filters,
+        tab3_local,
         insight_mode,
         model_provider,
         t2_x_current,
@@ -732,20 +804,331 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                 return meta_obj["chart"]
             return None
 
+        # Prepare live, current chart data for each selected gid
         charts_payload = []
+        gf = filters or {}
+        lf = tab3_local or {}
+        def _combine(a, b):
+            la = list(a or [])
+            lb = list(b or [])
+            if la and lb:
+                sb = set(lb)
+                return [x for x in la if x in sb]
+            return la or lb
+        merged_t3 = {
+            "outlet_categories": _combine(gf.get("outlet_categories"), lf.get("outlet_categories")),
+            "regions": list(gf.get("regions", [])),
+            "sales_center_codes": list(lf.get("sales_center_codes", [])),
+            "shortfall_side": lf.get("shortfall_side"),
+            "kpi_focus": lf.get("kpi_focus"),
+            "search_text": gf.get("search_text", ""),
+            "outlet_types": list(gf.get("outlet_types", [])),
+        }
+        try:
+            tab1_cur = combine_months(filters, "tab1")
+            t1_q1_f, _t1_q2_unused, _t1_q3_f, t1_q4_f, t1_q5_f = t1_get_filtered_frames(tab1_cur, gf)
+        except Exception:
+            t1_q1_f = t1_q4_f = t1_q5_f = pd.DataFrame()
+        try:
+            _t1_q1_unused, t1_q2_u, _t1_q3_u, t1_q4_u, _t1_q5_unused = t1_get_filtered_frames(tab1_cur, {"months": list((filters or {}).get("months") or ["March"])})
+        except Exception:
+            t1_q2_u = t1_q4_u = pd.DataFrame()
+        try:
+            tab2_cur = combine_months(filters, "tab2")
+            t2_df_chart = (t2_get_filtered_frames(tab2_cur, gf) or [pd.DataFrame()])[0]
+        except Exception:
+            t2_df_chart = pd.DataFrame()
+        try:
+            tab3_cur = combine_months(filters, "tab3")
+            t3_q1_chart, t3_q2_chart, _t3_q3_unused, _t3_q4_unused = t3_get_filtered_frames(
+                tab3_cur or {}, merged_t3
+            )
+        except Exception:
+            t3_q1_chart = t3_q2_chart = pd.DataFrame()
+        # DRY helper: build a month-specific dataframe for any chart gid
+        def _month_df_for_gid(base_gid: str, mlabel: str) -> pd.DataFrame:
+            try:
+                # Tab 1
+                if base_gid == "q2":
+                    from utils.df_summary import category_mix_by_month
+                    detail_df = t1_q4_u if isinstance(t1_q4_u, pd.DataFrame) else t1_q4_f
+                    mix_all = category_mix_by_month(detail_df)
+                    if isinstance(mix_all, pd.DataFrame) and not mix_all.empty:
+                        return mix_all[mix_all["Month"].astype(str) == str(mlabel)].copy()
+                    return pd.DataFrame(columns=["Month", "category", "count", "pct"])
+                if base_gid == "q1":
+                    if isinstance(t1_q4_f, pd.DataFrame) and not t1_q4_f.empty and "Month" in t1_q4_f.columns:
+                        return t1_q4_f[t1_q4_f["Month"].astype(str) == str(mlabel)].copy()
+                    return pd.DataFrame()
+                if base_gid == "q3":
+                    regs_sel = list((gf or {}).get("regions") or [])
+                    df = t1_q4_f
+                    if isinstance(df, pd.DataFrame) and not df.empty and "Month" in df.columns:
+                        sub = df[df["Month"].astype(str) == str(mlabel)].copy()
+                        if regs_sel and "rgn" in sub.columns:
+                            try:
+                                sub = sub[sub["rgn"].isin(regs_sel)]
+                            except Exception:
+                                pass
+                        return sub
+                    return pd.DataFrame()
+                if base_gid == "q6":
+                    from utils.df_summary import category_mix_by_month
+                    detail_df = t1_q4_f
+                    mix_all = category_mix_by_month(detail_df)
+                    if isinstance(mix_all, pd.DataFrame) and not mix_all.empty:
+                        return mix_all[mix_all["Month"].astype(str) == str(mlabel)][["Month", "category", "count"]].copy()
+                    return pd.DataFrame(columns=["Month", "category", "count"])
+                # Tab 2
+                if base_gid == "t2-graph-dyn":
+                    if isinstance(t2_df_chart, pd.DataFrame) and not t2_df_chart.empty and "Month" in t2_df_chart.columns:
+                        return t2_df_chart[t2_df_chart["Month"].astype(str) == str(mlabel)].copy()
+                    return pd.DataFrame()
+                # Tab 3
+                if base_gid == "t3-graph-1":
+                    from app_tabs.tab3.figures import KPI_DISPLAY as _KDISP
+                    import pandas as _pd
+                    base_live = t3_q1_chart
+                    if isinstance(base_live, _pd.DataFrame) and not base_live.empty and "Month" in base_live.columns:
+                        bl = base_live[base_live["Month"].astype(str) == str(mlabel)].copy()
+                        rows = []
+                        cats = ["B", "C", "D"]
+                        for col, disp in _KDISP:
+                            if col not in bl.columns:
+                                continue
+                            try:
+                                g = (
+                                    bl[bl["outlet_category"].isin(cats)]
+                                    .groupby("outlet_category")[col]
+                                    .mean()
+                                )
+                            except Exception:
+                                continue
+                            for cat in cats:
+                                if cat in g and pd.notna(g[cat]):
+                                    rows.append(
+                                        {
+                                            "Month": str(mlabel),
+                                            "outlet_category": cat,
+                                            "kpi": disp,
+                                            "gap_value": float(g[cat]) - 100.0,
+                                        }
+                                    )
+                        return _pd.DataFrame(rows)
+                    return pd.DataFrame(columns=["Month", "outlet_category", "kpi", "gap_value"])
+                if base_gid == "t3-graph-2":
+                    if isinstance(t3_q2_chart, pd.DataFrame) and not t3_q2_chart.empty and "Month" in t3_q2_chart.columns:
+                        return t3_q2_chart[t3_q2_chart["Month"].astype(str) == str(mlabel)].copy()
+                    return pd.DataFrame()
+            except Exception:
+                return pd.DataFrame()
         for gid in selected_graphs:
             meta_all = (selected_data or {}).get(gid)
             meta = pick_meta_for(gid, meta_all)
             if not meta:
                 continue
+            # Compute live chart dataframe for this gid (fallback to stored snapshot if empty)
+            live_df = pd.DataFrame()
+            try:
+                if gid == "q1":
+                    live_df = t1_q1_f
+                elif gid == "q2":
+                    # For insights: if multiple months selected, feed per-month category mix
+                    try:
+                        sel_months_local = list((gf or {}).get("months") or [])
+                    except Exception:
+                        sel_months_local = []
+                    if len(sel_months_local) > 1:
+                        try:
+                            from utils.df_summary import category_mix_by_month
+                            # Prefer unfiltered detailed frame to mirror q2 semantics
+                            detail_df = (
+                                t1_q4_u
+                                if isinstance(t1_q4_u, pd.DataFrame)
+                                else t1_q4_f
+                            )
+                            mix_all = category_mix_by_month(detail_df)
+                            if isinstance(mix_all, pd.DataFrame) and not mix_all.empty:
+                                live_df = mix_all[mix_all["Month"].astype(str).isin([str(m) for m in sel_months_local])]
+                            else:
+                                live_df = t1_q2_u
+                        except Exception:
+                            live_df = t1_q2_u
+                    else:
+                        live_df = t1_q2_u  # UI shows unfiltered category mix
+                elif gid == "q3":
+                    regs_sel = list((gf or {}).get("regions") or [])
+                    if len(regs_sel) == 1 and isinstance(t1_q4_f, pd.DataFrame) and not t1_q4_f.empty:
+                        df = t1_q4_f.copy()
+                        if "rgn" in df.columns:
+                            try:
+                                df = df[df["rgn"] == regs_sel[0]]
+                            except Exception:
+                                pass
+                        live_df = df
+                    else:
+                        live_df = t1_q1_f
+                elif gid == "q4":
+                    live_df = t1_q4_f
+                elif gid == "q5":
+                    live_df = t1_q5_f
+                elif gid == "q6":
+                    d = t1_q4_f if isinstance(t1_q4_f, pd.DataFrame) and not t1_q4_f.empty else t1_q1_f
+                    if isinstance(d, pd.DataFrame) and not d.empty:
+                        cat_col = "outlet_category" if "outlet_category" in d.columns else ("Category" if "Category" in d.columns else None)
+                        if cat_col:
+                            live_df = (
+                                d[[cat_col]]
+                                .dropna()
+                                .groupby(cat_col, dropna=False)
+                                .size()
+                                .reset_index(name="count")
+                                .rename(columns={cat_col: "category"})
+                            )
+                        else:
+                            live_df = pd.DataFrame(columns=["category", "count"])
+                elif gid == "t2-graph-dyn":
+                    live_df = t2_df_chart
+                elif gid == "t3-graph-1":
+                    live_df = t3_q1_chart
+                elif gid == "t3-graph-2":
+                    live_df = t3_q2_chart
+            except Exception:
+                live_df = pd.DataFrame()
+
+            # Special handling for Tab 3 first graph: provide a small, focused table (KPI gaps)
+            special_tab3_small = False
+            gap_df = None
+            if gid == "t3-graph-1":
+                try:
+                    from app_tabs.tab3.figures import KPI_DISPLAY as _KDISP
+                    def _gap_table(dframe: pd.DataFrame):
+                        import pandas as _pd
+                        if not isinstance(dframe, _pd.DataFrame) or dframe.empty:
+                            return _pd.DataFrame(columns=["outlet_category", "kpi", "gap_value"])
+                        rows_g = []
+                        cats = ["B", "C", "D"]
+                        for col, disp in _KDISP:
+                            if col not in dframe.columns:
+                                continue
+                            try:
+                                g = (
+                                    dframe[dframe["outlet_category"].isin(cats)]
+                                    .groupby("outlet_category")[col]
+                                    .mean()
+                                )
+                            except Exception:
+                                continue
+                            for cat in cats:
+                                if cat in g and pd.notna(g[cat]):
+                                    rows_g.append(
+                                        {
+                                            "outlet_category": cat,
+                                            "kpi": disp,
+                                            "gap_value": float(g[cat]) - 100.0,
+                                        }
+                                    )
+                        return _pd.DataFrame(rows_g)
+
+                    gap_df = _gap_table(live_df)
+                    if isinstance(gap_df, pd.DataFrame) and not gap_df.empty:
+                        special_tab3_small = True
+                except Exception:
+                    special_tab3_small = False
+
+            # Choose base dataframe for the payload (small focused table if available)
+            base_df = gap_df if special_tab3_small else live_df
+
             item = {
                 "graph_id": gid,
-                "graph_label": label(gid),
+                "graph_label": label(gid) + (" — KPI gaps" if special_tab3_small else ""),
                 "filters": filters,
-                "columns": meta.get("columns", []),
-                "n_rows": meta.get("n_rows", 0),
-                "rows": meta.get("records", []),
+                "columns": (
+                    [str(c) for c in base_df.columns]
+                    if isinstance(base_df, pd.DataFrame) and not base_df.empty
+                    else meta.get("columns", [])
+                ),
+                "n_rows": (
+                    len(base_df)
+                    if isinstance(base_df, pd.DataFrame) and not base_df.empty
+                    else meta.get("n_rows", 0)
+                ),
+                "rows": (
+                    base_df.to_dict("records")
+                    if isinstance(base_df, pd.DataFrame) and not base_df.empty
+                    else meta.get("records", [])
+                ),
             }
+            # Attach computed per-column statistics to reduce LLM arithmetic errors
+            try:
+                from utils.df_summary import describe_by_column, grouped_stats_selected
+                if isinstance(base_df, pd.DataFrame) and not base_df.empty:
+                    item["computed_stats"] = describe_by_column(base_df)
+                    # Also compute grouped stats by outlet_category / outlet_type when present
+                    gs = grouped_stats_selected(base_df)
+                    if gs:
+                        item["group_stats"] = gs
+                else:
+                    # Fallback: build a DataFrame from payload rows if available
+                    _cols = item.get("columns") or []
+                    _rows = item.get("rows") or []
+                    if _cols and _rows:
+                        _df_tmp = pd.DataFrame(_rows)
+                        item["computed_stats"] = describe_by_column(_df_tmp)
+                        gs = grouped_stats_selected(_df_tmp)
+                        if gs:
+                            item["group_stats"] = gs
+
+                # Month-aware context: when multiple months selected, provide underlying
+                # detailed dataset stats (which include 'Month') so LLM can compare MoM
+                try:
+                    sel_months = list((filters or {}).get("months") or [])
+                except Exception:
+                    sel_months = []
+                if len(sel_months) > 1:
+                    # Choose an underlying detailed frame per graph family
+                    ctx_df = None
+                    if gid.startswith("q"):
+                        ctx_df = t1_q1_f
+                    elif gid == "t2-graph-dyn":
+                        ctx_df = t2_df_chart
+                    elif gid.startswith("t3-"):
+                        ctx_df = t3_q1_chart
+                    if isinstance(ctx_df, pd.DataFrame) and not ctx_df.empty:
+                        # Provide extended context (full stats including Month grouping)
+                        ctx_comp = describe_by_column(ctx_df)
+                        ctx_grp = grouped_stats_selected(ctx_df)
+                        item.setdefault("context_stats", {})
+                        item["context_stats"].update(
+                            {
+                                "large_computed_stats": ctx_comp,
+                                "large_group_stats": ctx_grp,
+                            }
+                        )
+                        # Also merge Month group stats directly into group_stats so the
+                        # computed stats block shows per-month values inline
+                        if isinstance(ctx_grp, dict) and ctx_grp:
+                            item.setdefault("group_stats", {})
+                            for k, v in ctx_grp.items():
+                                # Do not overwrite if the key already exists unless it's empty
+                                if k not in item["group_stats"] or not item["group_stats"][k]:
+                                    item["group_stats"][k] = v
+
+                # For Tab3 small table, attach large dataset stats as additional context
+                if special_tab3_small and isinstance(live_df, pd.DataFrame) and not live_df.empty:
+                    item.setdefault("context_stats", {})
+                    item["context_stats"].update(
+                        {
+                            "large_computed_stats": describe_by_column(live_df),
+                            "large_group_stats": grouped_stats_selected(live_df),
+                        }
+                    )
+                    # Mark the small table as primary
+                    item["priority"] = "primary"
+            except Exception:
+                pass
+
+            # Logging removed per request
             # Attach generic chart-level metadata if provided by the selector step
             try:
                 if isinstance(meta_all, dict) and isinstance(
@@ -754,43 +1137,86 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                     item["meta"] = meta_all["meta"]
             except Exception:
                 pass
-            # Enrich Tab 3 first chart with both datasets when available
-            if gid == "t3-graph-1" and isinstance(meta_all, dict):
-                alt_full = meta_all.get("alt_full")
-                alt_chart = meta_all.get("alt_chart")
-                if isinstance(alt_full, dict):
-                    item["alt_full"] = alt_full
-                if isinstance(alt_chart, dict):
-                    item["alt_chart"] = alt_chart
-                # Do not add the secondary (raw outlet) table as a separate chart entry.
-                # It remains attached as alt_full/alt_chart on the main item if needed for internal use.
-                # Also add the derived KPI gap table that powers the diverging bar
-                gap_meta = meta_all.get("gap_chart") or meta_all.get("gap_full")
-                if isinstance(gap_meta, dict):
+            # Enrich Tab 1 q2 with a month-category mix table so LLM can compare MoM
+            if gid == "q2":
+                try:
+                    # Use detailed Tab1 dataset with Month preserved
+                    t1_detail = t1_q1_f if isinstance(t1_q1_f, pd.DataFrame) else pd.DataFrame()
+                    if not t1_detail.empty and {
+                        "Month",
+                        "outlet_category",
+                    }.issubset(set(t1_detail.columns)):
+                        d = t1_detail.copy()
+                        # pick region column name
+                        rg = "rgn" if "rgn" in d.columns else None
+                        if rg:
+                            dd = d[["Month", rg, "outlet_category"]].dropna()
+                            mix = (
+                                dd.groupby(["Month", rg, "outlet_category"], dropna=False)
+                                .size()
+                                .reset_index(name="count")
+                            )
+                            totals = mix.groupby(["Month", rg], dropna=False)["count"].transform("sum")
+                            mix["pct"] = (mix["count"] / totals) * 100.0
+                            charts_payload.append(
+                                {
+                                    "graph_id": f"{gid}-month-mix",
+                                    "graph_label": label(gid) + " — Month category mix",
+                                    "filters": filters,
+                                    "columns": [str(c) for c in mix.columns],
+                                    "n_rows": len(mix),
+                                    "rows": mix.to_dict("records"),
+                                }
+                            )
+                except Exception:
+                    pass
+
+            # Enrich Tab 3 first chart with the live derived KPI gap table
+            if gid == "t3-graph-1" and (insight_mode or "individual") == "combined":
+                try:
+                    from app_tabs.tab3.figures import KPI_DISPLAY as _KDISP
+                    def _gap_table(dframe: pd.DataFrame):
+                        import pandas as _pd
+                        if not isinstance(dframe, _pd.DataFrame) or dframe.empty:
+                            return _pd.DataFrame(columns=["outlet_category", "kpi", "gap_value"])
+                        rows_g = []
+                        cats = ["B", "C", "D"]
+                        for col, disp in _KDISP:
+                            if col not in dframe.columns:
+                                continue
+                            try:
+                                g = (
+                                    dframe[dframe["outlet_category"].isin(cats)]
+                                    .groupby("outlet_category")[col]
+                                    .mean()
+                                )
+                            except Exception:
+                                continue
+                            for cat in cats:
+                                if cat in g and pd.notna(g[cat]):
+                                    rows_g.append(
+                                        {
+                                            "outlet_category": cat,
+                                            "kpi": disp,
+                                            "gap_value": float(g[cat]) - 100.0,
+                                        }
+                                    )
+                        return _pd.DataFrame(rows_g)
+
+                    gap_df = _gap_table(t3_q1_chart)
                     charts_payload.append(
                         {
                             "graph_id": f"{gid}-gaps",
                             "graph_label": label(gid) + " — KPI gaps",
                             "filters": filters,
-                            "columns": gap_meta.get("columns", []),
-                            "n_rows": gap_meta.get("n_rows", 0),
-                            "rows": gap_meta.get("records", []),
+                            "columns": [str(c) for c in gap_df.columns],
+                            "n_rows": len(gap_df),
+                            "rows": gap_df.to_dict("records"),
                         }
                     )
-            # Ensure q3 reflects current drilldown (override from live filters)
-            if gid == "q3":
-                try:
-                    _q1, _q2, _q3, _q4, _q5 = t1_get_filtered_frames(
-                        tab1, (filters or {})
-                    )
-                    regs_sel = list((filters or {}).get("regions") or [])
-                    live_df = _q4 if len(regs_sel) == 1 else _q1
-                    if isinstance(live_df, pd.DataFrame) and not live_df.empty:
-                        item["columns"] = [str(c) for c in live_df.columns]
-                        item["rows"] = live_df.to_dict("records")
-                        item["n_rows"] = len(item["rows"])
                 except Exception:
                     pass
+            # Ensure q3 reflects current drilldown handled above via live_df
             # Enrich/override Tab 2 dynamic chart metadata with the CURRENT UI selections
             if gid == "t2-graph-dyn" and isinstance(meta_all, dict):
                 # Start from any stored meta then override x/y/color with live values
@@ -807,6 +1233,33 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                 if live_meta:
                     item["meta"] = live_meta
             charts_payload.append(item)
+
+            # If user enabled Compare Months, add per-month payloads via DRY helper
+            try:
+                sel_months = list((filters or {}).get("months") or [])
+                compare_on = len(sel_months) > 1 or bool((filters or {}).get("compare_months"))
+            except Exception:
+                sel_months, compare_on = [], False
+            if compare_on:
+                from utils.df_summary import describe_by_column, grouped_stats_selected
+                for mlabel in sel_months:
+                    sub = _month_df_for_gid(gid, mlabel)
+                    if not isinstance(sub, pd.DataFrame) or sub.empty:
+                        continue
+                    comp = describe_by_column(sub)
+                    grp = grouped_stats_selected(sub)
+                    charts_payload.append(
+                        {
+                            "graph_id": f"{gid}-month-{mlabel}",
+                            "graph_label": label(gid) + f" — {mlabel}",
+                            "filters": {**(filters or {}), "months": [mlabel]},
+                            "columns": [str(c) for c in sub.columns],
+                            "n_rows": len(sub),
+                            "rows": sub.to_dict("records"),
+                            "computed_stats": comp,
+                            "group_stats": grp,
+                        }
+                    )
 
         if not charts_payload:
             return html.Div(
@@ -832,7 +1285,6 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             top_metadata = {}
 
         payload = {"charts": charts_payload, "metadata": top_metadata}
-        print(payload)
 
         # Build sidebar debug preview for all selected charts, including q2
         def preview_all(charts):
@@ -882,6 +1334,116 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             return html.Div(sections)
 
         debug_view = preview_all(charts_payload)
+
+        # Shared helpers: format numbers to 2 decimals (preserve integers, skip headings)
+        import re as _fmt_re
+        def _fmt_two_decimals_text(text: str) -> str:
+            def fmt_line(line: str) -> str:
+                if line.lstrip().startswith(('#','##','###','####','#####','######')):
+                    return line
+                if _fmt_re.match(r"^\s*\d+\.\s+", line):
+                    return line
+                def repl(m):
+                    num = m.group(0)
+                    try:
+                        if len(num) > 10 and '.' not in num:
+                            return num
+                        if '.' not in num:
+                            return num
+                        val = float(num)
+                        return f"{val:.2f}"
+                    except Exception:
+                        return num
+                return _fmt_re.sub(r"(?<![A-Za-z0-9_.-])(\d+\.?\d*)(?![A-Za-z0-9_.-])", repl, line)
+            return "\n".join(fmt_line(ln) for ln in (text or '').splitlines())
+
+        # Shared helper: convert to point/bullet form
+        def _to_point_form_shared(md: str) -> str:
+            try:
+                s = (md or "").strip()
+                if not s:
+                    return s
+                if ("\n- " in s or s.lstrip().startswith("- ") or "\n* " in s or s.lstrip().startswith("* ")):
+                    lines = s.split("\n")
+                    out_lines = []
+                    for line in lines:
+                        if line.lstrip().startswith(("- ", "* ")) and len(line) > 160:
+                            import re as _re
+                            text = line.lstrip()[2:].strip()
+                            sentences = [t.strip() for t in _re.split(r"(?<=[.!?])\s+", text) if t.strip()]
+                            if sentences:
+                                bullet_prefix = "- " if line.lstrip().startswith("- ") else "* "
+                                out_lines.append(f"{bullet_prefix}{sentences[0]}")
+                                for sent in sentences[1:]:
+                                    out_lines.append(f"  - {sent}")
+                                continue
+                        out_lines.append(line)
+                    return "\n".join(out_lines)
+                blocks = [b.strip() for b in s.split("\n\n") if b.strip()]
+                out = []
+                for b in blocks:
+                    if b.startswith(("#", "##", "###")):
+                        out.append(b)
+                    else:
+                        import re as _re
+                        sentences = [t.strip() for t in _re.split(r"(?<=[.!?])\s+", b) if t.strip()]
+                        if not sentences:
+                            out.append(f"- {b}")
+                        else:
+                            out.append(f"- {sentences[0]}")
+                            for sent in sentences[1:]:
+                                out.append(f"  - {sent}")
+                return "\n\n".join(out)
+            except Exception:
+                return md
+
+        # Build JSON stats export and append to debug view
+        def _round_num(x):
+            try:
+                if x is None:
+                    return None
+                xf = float(x)
+                if xf != xf or xf in (float("inf"), float("-inf")):
+                    return None
+                return round(xf, 2)
+            except Exception:
+                return x
+
+        def _sanitize(obj):
+            if isinstance(obj, dict):
+                return {k: _sanitize(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_sanitize(v) for v in obj]
+            if isinstance(obj, float):
+                return _round_num(obj)
+            return obj
+
+        stats_export = []
+        for ch in charts_payload:
+            stats_export.append(
+                {
+                    "chart_id": ch.get("graph_id"),
+                    "chart_label": ch.get("graph_label"),
+                    "n_rows": ch.get("n_rows"),
+                    "columns": ch.get("columns"),
+                    "computed_stats": _sanitize(ch.get("computed_stats") or {}),
+                    "group_stats": _sanitize(ch.get("group_stats") or {}),
+                }
+            )
+        try:
+            json_stats_text = json.dumps(stats_export, ensure_ascii=True, indent=2, sort_keys=True)
+        except Exception:
+            json_stats_text = "[]"
+
+        debug_view = html.Div([
+            debug_view,
+            html.Div("JSON Stats", style={"fontWeight":700, "fontSize":"13px", "marginTop":"10px"}),
+            html.Pre(json_stats_text, style={
+                "whiteSpace":"pre-wrap","wordBreak":"break-word","backgroundColor":"#f3f4f6",
+                "border":"1px solid #e5e7eb","borderRadius":"6px","padding":"8px","fontSize":"12px",
+                "maxHeight":"240px","overflowY":"auto"
+            })
+        ])
         # Add brief preamble to steer models when axis metadata exists
         focus_hint = ""
         try:
@@ -898,17 +1460,79 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         except Exception:
             pass
 
+        # If multiple months are selected, direct LLM to produce explicit month-over-month comparisons
+        try:
+            sel_months = list((filters or {}).get("months") or [])
+            if len(sel_months) > 1:
+                months_text = ", ".join(map(str, sel_months))
+                focus_hint += (
+                    f"Multiple months selected ({months_text}). When the dataset contains a 'Month' column, "
+                    f"you MUST compare months explicitly: quantify deltas (May−March, etc.), identify categories/regions/types with the biggest "
+                    f"improvements or declines, and state exact values with signs and percentages. Prioritize MoM changes in Observations.\n"
+                )
+                # Add computed facts for q2: Category A share by month when available
+                try:
+                    q2_items = [
+                        ch
+                        for ch in charts_payload
+                        if str(ch.get("graph_id", "")).startswith("q2")
+                        and set(map(str, ch.get("columns") or [])).issuperset({"Month", "category", "pct"})
+                    ]
+                    # Combine rows across found q2 items (could be per-month rows)
+                    rows_all = []
+                    for ch in q2_items:
+                        rows_all.extend(ch.get("rows") or [])
+                    # Build map month -> A pct
+                    a_pct = {}
+                    for r in rows_all:
+                        try:
+                            if str(r.get("category")).strip().upper() == "A":
+                                a_pct[str(r.get("Month"))] = float(r.get("pct"))
+                        except Exception:
+                            pass
+                    if a_pct:
+                        facts = ", ".join(
+                            [f"{m}: {round(a_pct[m], 2)}%" for m in sel_months if m in a_pct]
+                        )
+                        if facts:
+                            focus_hint += (
+                                f"Computed Category A share by month → {facts}. Emphasize which month is higher and by how much.\n"
+                            )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
         # Context/theme and domain knowledge base for CR KPI DW
         context_text = os.environ.get("INSIGHTS_CONTEXT", "").strip()
         # Resolve provider early so we can use it in multi-chart individual generation
-        provider = (
-            (model_provider or os.environ.get("INSIGHTS_PROVIDER", "gemini"))
-            .strip()
-            .lower()
-        )
+        provider = "gemini"
 
         # If multiple charts are selected and mode is individual, generate one insight per chart
-        if (insight_mode or "individual") == "individual" and len(charts_payload) > 1:
+        # EXCEPT when month comparison is active — then produce a single comparison insight.
+        compare_active = False
+        try:
+            _sel_m = list((filters or {}).get("months") or [])
+            compare_active = len(_sel_m) > 1 or bool((filters or {}).get("compare_months"))
+        except Exception:
+            compare_active = False
+
+        # Determine if multi-section output is appropriate (avoid when it's the same chart split by months)
+        try:
+            import re as _re_gid
+            base_ids = set()
+            for _ch in charts_payload:
+                _gid = str(_ch.get("graph_id", ""))
+                _base = _re_gid.sub(r"-month-.*$", "", _gid)
+                base_ids.add(_base)
+        except Exception:
+            base_ids = set()
+
+        if (
+            (insight_mode or "individual") == "individual"
+            and len(charts_payload) > 1
+            and (not compare_active or len(base_ids) > 1)
+        ):
             sections = []
             for ch in charts_payload:
                 ch_meta = ch.get("meta") if isinstance(ch, dict) else None
@@ -962,12 +1586,9 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                     pass
 
                 # Call LLM for this chart
-                if provider == "openrouter":
-                    per_text, per_err = generate_markdown_openrouter(per_prompt)
-                else:
-                    per_text, per_err = generate_markdown_from_prompt(
-                        per_prompt, model_name=MODEL_NAME, api_key=GOOGLE_API_KEY
-                    )
+                per_text, per_err = generate_markdown_from_prompt(
+                    per_prompt, model_name=MODEL_NAME, api_key=GOOGLE_API_KEY
+                )
                 if per_err:
                     sections.append(
                         html.Div(
@@ -1002,64 +1623,8 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                     return text
 
                 cleaned_local = _unwrap_code_fence_local(per_text)
-
-                def _to_point_form_local(md: str) -> str:
-                    try:
-                        s = (md or "").strip()
-                        if not s:
-                            return s
-                        if (
-                            "\n- " in s
-                            or s.lstrip().startswith("- ")
-                            or "\n* " in s
-                            or s.lstrip().startswith("* ")
-                        ):
-                            lines = s.split("\n")
-                            out_lines = []
-                            for line in lines:
-                                if (
-                                    line.lstrip().startswith(("- ", "* "))
-                                    and len(line) > 160
-                                ):
-                                    import re as _re
-
-                                    text = line.lstrip()[2:].strip()
-                                    sentences = [
-                                        t.strip()
-                                        for t in _re.split(r"(?<=[.!?])\s+", text)
-                                        if t.strip()
-                                    ]
-                                    if sentences:
-                                        out_lines.append(line)
-                                        for sent in sentences[1:]:
-                                            out_lines.append(f"  - {sent}")
-                                        continue
-                                out_lines.append(line)
-                            return "\n".join(out_lines)
-                        blocks = [b.strip() for b in s.split("\n\n") if b.strip()]
-                        out = []
-                        for b in blocks:
-                            if b.startswith(("#", "##", "###")):
-                                out.append(b)
-                            else:
-                                import re as _re
-
-                                sentences = [
-                                    t.strip()
-                                    for t in _re.split(r"(?<=[.!?])\s+", b)
-                                    if t.strip()
-                                ]
-                                if not sentences:
-                                    out.append(f"- {b}")
-                                else:
-                                    out.append(f"- {sentences[0]}")
-                                    for sent in sentences[1:]:
-                                        out.append(f"  - {sent}")
-                        return "\n\n".join(out)
-                    except Exception:
-                        return md
-
-                pointy_local = _to_point_form_local(cleaned_local)
+                cleaned_local = _fmt_two_decimals_text(cleaned_local)
+                pointy_local = _to_point_form_shared(cleaned_local)
                 sections.append(
                     html.Div(
                         [
@@ -1077,87 +1642,218 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                 )
 
             return html.Div(sections), debug_view
+
+        # Optional map-reduce path: if full datasets exceed the UI packing limit,
+        # analyze via chunked LLM passes to avoid losing information.
+        def _build_full_df_for_gid(gid: str) -> pd.DataFrame:
+            try:
+                # Use current chart-scoped dataframe for analysis to reflect filters
+                if gid == "q1":
+                    return t1_q1_f
+                if gid == "q2":
+                    # If multiple months are selected, switch to per-month category mix
+                    try:
+                        sel_months_local = list((gf or {}).get("months") or [])
+                    except Exception:
+                        sel_months_local = []
+                    if len(sel_months_local) > 1:
+                        try:
+                            from utils.df_summary import category_mix_by_month
+                            detail_df = (
+                                t1_q4_u if isinstance(t1_q4_u, pd.DataFrame) else t1_q4_f
+                            )
+                            mix_all = category_mix_by_month(detail_df)
+                            if isinstance(mix_all, pd.DataFrame) and not mix_all.empty:
+                                return mix_all[
+                                    mix_all["Month"].astype(str).isin(
+                                        [str(m) for m in sel_months_local]
+                                    )
+                                ].copy()
+                        except Exception:
+                            pass
+                    return t1_q2_u  # unfiltered by design
+                if gid == "q3":
+                    regs_sel = list((gf or {}).get("regions") or [])
+                    if len(regs_sel) == 1 and isinstance(t1_q4_f, pd.DataFrame) and not t1_q4_f.empty:
+                        df = t1_q4_f.copy()
+                        if "rgn" in df.columns:
+                            try:
+                                df = df[df["rgn"] == regs_sel[0]]
+                            except Exception:
+                                pass
+                        return df
+                    return t1_q1_f
+                if gid == "q4":
+                    return t1_q4_f
+                if gid == "q5":
+                    return t1_q5_f
+                if gid == "q6":
+                    # Derived counts from filtered detail
+                    d = t1_q4_f if isinstance(t1_q4_f, pd.DataFrame) and not t1_q4_f.empty else t1_q1_f
+                    if not isinstance(d, pd.DataFrame) or d.empty:
+                        return pd.DataFrame(columns=["category", "count"])
+                    cat_col = "outlet_category" if "outlet_category" in d.columns else ("Category" if "Category" in d.columns else None)
+                    if not cat_col:
+                        return pd.DataFrame(columns=["category", "count"])
+                    try:
+                        c = (
+                            d[[cat_col]]
+                            .dropna()
+                            .groupby(cat_col, dropna=False)
+                            .size()
+                            .reset_index(name="count")
+                        )
+                        return c.rename(columns={cat_col: "category"})
+                    except Exception:
+                        return pd.DataFrame(columns=["category", "count"])
+                if gid == "t2-graph-dyn":
+                    return t2_df_chart
+                if gid == "t3-graph-1":
+                    return t3_q1_chart
+                if gid == "t3-graph-2":
+                    return t3_q2_chart
+            except Exception:
+                pass
+            return pd.DataFrame()
+
+        full_dfs_by_gid: dict[str, pd.DataFrame] = {}
+        use_chunking = False
+        for ch in charts_payload:
+            gid = ch.get("graph_id")
+            # Support month-specific graph IDs (e.g., "q1-month-March", "t3-graph-1-month-May")
+            base_gid = gid
+            month_label = None
+            try:
+                import re as _re
+                m = _re.match(r"^(.*?)-month-(.+)$", str(gid))
+                if m:
+                    base_gid = m.group(1)
+                    month_label = m.group(2)
+            except Exception:
+                pass
+
+            # Build base full dataframe for the underlying gid
+            df_full = _build_full_df_for_gid(base_gid)
+
+            # Special cases for month-specific IDs handled by DRY helper
+            if month_label:
+                try:
+                    md = _month_df_for_gid(base_gid, str(month_label))
+                    if isinstance(md, pd.DataFrame) and not md.empty:
+                        df_full = md
+                except Exception:
+                    pass
+
+            # Generic month filter when Month exists on the base frame
+            if month_label and isinstance(df_full, pd.DataFrame) and not df_full.empty and "Month" in df_full.columns:
+                try:
+                    df_full = df_full[df_full["Month"].astype(str) == str(month_label)].copy()
+                except Exception:
+                    # fall back silently if filtering fails
+                    pass
+
+            full_dfs_by_gid[gid] = df_full
+            try:
+                if isinstance(df_full, pd.DataFrame) and len(df_full) > max(300, int(ch.get("n_rows") or 0)):
+                    use_chunking = True
+            except Exception:
+                if isinstance(df_full, pd.DataFrame) and len(df_full) > 300:
+                    use_chunking = True
+
+        # Skip chunking when month comparison is active for a single chart split into months
+        if use_chunking and not (compare_active and len(base_ids) <= 1):
+            provider = "gemini"
+
+            if (insight_mode or "individual") != "combined":
+                # Single-chart path: use the first selected chart for analysis
+                ch = charts_payload[0]
+                gid = ch.get("graph_id")
+                final_text, err = summarize_chart_via_chunks(
+                    graph_id=gid,
+                    graph_label=ch.get("graph_label") or gid,
+                    df_full=full_dfs_by_gid.get(gid) or pd.DataFrame(),
+                    meta=ch.get("meta") or {},
+                    provider=provider,
+                    context_text="Generate precise, quantified insights from the complete dataset.",
+                    focus_hint=f"{focus_hint}",
+                    chunk_size=600,
+                )
+                if err:
+                    return html.Div(
+                        [
+                            html.H4("Error Generating Report", style={"color": "#991B1B"}),
+                            html.P(f"LLM error: {err}"),
+                        ]
+                    ), debug_view
+                # Apply 2-decimal rounding to chunked output
+                final_text = _fmt_two_decimals_text(final_text or "")
+                return html.Div(
+                    [
+                        html.H4("Generated Insights", style={"color": "#007bff"}),
+                        dcc.Markdown(final_text or "_No content returned._", link_target="_blank"),
+                    ]
+                ), debug_view
+
+            # Combined mode: per-chart map-reduce then synthesis
+            per_texts = []
+            for ch in charts_payload:
+                gid = ch.get("graph_id")
+                text_i, err_i = summarize_chart_via_chunks(
+                    graph_id=gid,
+                    graph_label=ch.get("graph_label") or gid,
+                    df_full=full_dfs_by_gid.get(gid) or pd.DataFrame(),
+                    meta=ch.get("meta") or {},
+                    provider=provider,
+                    context_text="Generate precise, quantified insights from the complete dataset.",
+                    focus_hint=f"{focus_hint}",
+                    chunk_size=600,
+                )
+                if err_i:
+                    return html.Div(
+                        [
+                            html.H4("Error Generating Report", style={"color": "#991B1B"}),
+                            html.P(f"LLM error: {err_i}"),
+                        ]
+                    ), debug_view
+                per_texts.append((ch.get("graph_label") or gid, text_i or ""))
+
+            final_text, err = synthesize_across_charts(
+                chart_texts=per_texts,
+                provider=provider,
+                context_text="Create an integrated report from all chart analyses.",
+                focus_hint=f"{focus_hint}",
+            )
+            if err:
+                return html.Div(
+                    [
+                        html.H4("Error Generating Report", style={"color": "#991B1B"}),
+                        html.P(f"LLM error: {err}"),
+                    ]
+                ), debug_view
+
+            # Round numbers in final combined text as well
+            final_text = _fmt_two_decimals_text(final_text or "")
+            return html.Div(
+                [
+                    html.H4("Generated Insights", style={"color": "#007bff"}),
+                    dcc.Markdown(final_text or "_No content returned._", link_target="_blank"),
+                ]
+            ), debug_view
+
         # Use the same output structure for combined and individual insights
         # by routing both modes through the individual prompt builder.
         prompt = build_prompt_individual(payload, context_text, focus_hint)
 
         # Log prompt with metadata for insights (provider, model, selected graphs)
-        try:
-            from datetime import datetime
-
-            os.makedirs("logs", exist_ok=True)
-            meta = {
-                "ts": datetime.utcnow().isoformat() + "Z",
-                "mode": insight_mode,
-                "provider": (
-                    model_provider or os.environ.get("INSIGHTS_PROVIDER", "gemini")
-                )
-                .strip()
-                .lower(),
-                "model": MODEL_NAME,
-                "selected_graphs": list(selected_graphs or []),
-                "focus_hint": focus_hint.strip(),
-            }
-            charts_meta = []
-            try:
-                for ch in charts_payload:
-                    if isinstance(ch.get("meta"), dict):
-                        charts_meta.append(
-                            {"graph_id": ch.get("graph_id"), "meta": ch.get("meta")}
-                        )
-            except Exception:
-                pass
-            # Improve readability: include prompt_lines (array of lines) alongside raw prompt
-            try:
-                prompt_lines = (prompt or "").splitlines()
-            except Exception:
-                prompt_lines = []
-            entry = {
-                "meta": meta,
-                "metadata": top_metadata,
-                "charts_meta": charts_meta,
-                "prompt": prompt,
-                "prompt_lines": prompt_lines,
-            }
-            with open("logs/insights_prompts.log", "a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False, indent=2) + "\n")
-        except Exception:
-            pass
+        # Prompt logging removed per request
 
         # Provider can be chosen in UI; fallback to env if UI missing
-        provider = (
-            (model_provider or os.environ.get("INSIGHTS_PROVIDER", "gemini"))
-            .strip()
-            .lower()
-        )
+        provider = "gemini"
         # Print/emit concise metadata for debugging prompt context
-        try:
-            _metas = []
-            for ch in charts_payload:
-                if isinstance(ch.get("meta"), dict):
-                    _metas.append(
-                        {"graph_id": ch.get("graph_id"), "meta": ch.get("meta")}
-                    )
-            print(
-                {
-                    "insights_meta": {
-                        "mode": insight_mode,
-                        "provider": provider,
-                        "model": MODEL_NAME,
-                        "selected_graphs": [c.get("graph_id") for c in charts_payload],
-                        "charts_meta": _metas,
-                        "metadata": top_metadata,
-                    }
-                }
-            )
-        except Exception:
-            pass
-        if provider == "openrouter":
-            llm_text, err = generate_markdown_openrouter(prompt)
-        else:
-            llm_text, err = generate_markdown_from_prompt(
-                prompt, model_name=MODEL_NAME, api_key=GOOGLE_API_KEY
-            )
+        # Console metadata print removed per request
+        llm_text, err = generate_markdown_from_prompt(
+            prompt, model_name=MODEL_NAME, api_key=GOOGLE_API_KEY
+        )
         if err:
             return html.Div(
                 [
@@ -1190,68 +1886,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         # Prefer bullet/point form for readability: if the response is not already in bullets,
         # lightly transform paragraphs into bullets without altering content. This is a best-effort
         # display-only formatting; it does not change the underlying response text.
-        def _to_point_form(md: str) -> str:
-            try:
-                s = (md or "").strip()
-                if not s:
-                    return s
-                # If it already contains bullets, keep as-is
-                if (
-                    "\n- " in s
-                    or s.lstrip().startswith("- ")
-                    or "\n* " in s
-                    or s.lstrip().startswith("* ")
-                ):
-                    # Also try to break long lines inside each existing bullet into sub-bullets by sentences
-                    lines = s.split("\n")
-                    out_lines = []
-                    for line in lines:
-                        if line.lstrip().startswith(("- ", "* ")) and len(line) > 160:
-                            # Split into sentences and indent as sub-bullets
-                            import re as _re
-
-                            text = line.lstrip()[2:].strip()
-                            sentences = [
-                                t.strip()
-                                for t in _re.split(r"(?<=[.!?])\s+", text)
-                                if t.strip()
-                            ]
-                            if sentences:
-                                # First sentence remains the main bullet
-                                out_lines.append(line)
-                                # Subsequent sentences become indented sub-bullets
-                                for sent in sentences[1:]:
-                                    out_lines.append(f"  - {sent}")
-                                continue
-                        out_lines.append(line)
-                    return "\n".join(out_lines)
-                # Split by double newlines into blocks and prefix with '- ' when appropriate
-                blocks = [b.strip() for b in s.split("\n\n") if b.strip()]
-                # Keep headings intact; bullet non-heading blocks
-                out = []
-                for b in blocks:
-                    if b.startswith(("#", "##", "###")):
-                        out.append(b)
-                    else:
-                        # Convert a paragraph into a parent bullet and sub-bullets by sentences
-                        import re as _re
-
-                        sentences = [
-                            t.strip()
-                            for t in _re.split(r"(?<=[.!?])\s+", b)
-                            if t.strip()
-                        ]
-                        if not sentences:
-                            out.append(f"- {b}")
-                        else:
-                            out.append(f"- {sentences[0]}")
-                            for sent in sentences[1:]:
-                                out.append(f"  - {sent}")
-                return "\n\n".join(out)
-            except Exception:
-                return md
-
-        pointy = _to_point_form(cleaned)
+        pointy = _to_point_form_shared(_fmt_two_decimals_text(cleaned))
         return html.Div(
             [
                 html.H4("Generated Insights", style={"color": "#007bff"}),
@@ -1266,10 +1901,14 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         Output("outlet-category-filter", "value"),
         Output("region-filter", "value"),
         Output("outlet-type-filter", "value"),
+        Output("month-filter", "value"),
+        # removed main compare toggle output
         Input("reset-button", "n_clicks"),
         Input("outlet-category-filter", "value"),
         Input("region-filter", "value"),
         Input("outlet-type-filter", "value"),
+        Input("month-filter", "value"),
+        Input("month-compare-toggle-side", "value"),
         # Input('graph-q1', 'clickData'),
         Input("graph-q2", "clickData"),
         Input("graph-q3", "clickData"),
@@ -1291,6 +1930,8 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         outlet_cats,
         regions,
         outlet_types,
+        months_value,
+        month_compare_value_side,
         click_q2,
         click_q3,
         click_q4,
@@ -1336,7 +1977,14 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
 
         if trig_id == "reset-button":
             df = default_filters
-            return (df, None, [], [], [])
+            return (
+                df,
+                None,
+                [],
+                [],
+                [],
+                df.get("months", ["March"]),
+            )
 
         if trig_id in ("outlet-category-filter", "region-filter", "outlet-type-filter"):
             new_filters = current_filters.copy()
@@ -1349,6 +1997,38 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                 new_filters["outlet_categories"],
                 new_filters["regions"],
                 new_filters["outlet_types"],
+                new_filters.get("months", ["March"]),
+            )
+
+        if trig_id == "month-filter":
+            new_filters = current_filters.copy()
+            new_filters["months"] = list(months_value or [])
+            if not new_filters["months"]:
+                new_filters["months"] = ["March"]
+            # If fewer than 2 months are selected, force compare off
+            if len(new_filters["months"]) <= 1:
+                new_filters["compare_months"] = False
+            return (
+                new_filters,
+                None,
+                new_filters.get("outlet_categories", []),
+                new_filters.get("regions", []),
+                new_filters.get("outlet_types", []),
+                new_filters["months"],
+            )
+
+        if trig_id == "month-compare-toggle-side":
+            new_filters = current_filters.copy()
+            # prefer the source of the trigger
+            val = month_compare_value_side
+            new_filters["compare_months"] = bool(val and ("compare" in val))
+            return (
+                new_filters,
+                None,
+                new_filters.get("outlet_categories", []),
+                new_filters.get("regions", []),
+                new_filters.get("outlet_types", []),
+                new_filters.get("months", ["March"]),
             )
 
         if trig_id == "t2-graph-dynamic" and trig.get("value"):
@@ -1392,6 +2072,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                     nf.get("outlet_categories", []),
                     nf.get("regions", []),
                     nf.get("outlet_types", []),
+                    nf.get("months", ["March"]),
                 )
 
             # Otherwise, apply filters and store active key
@@ -1409,6 +2090,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                 nf.get("outlet_categories", []),
                 nf.get("regions", []),
                 nf.get("outlet_types", []),
+                nf.get("months", ["March"]),
             )
 
         # Tab 3 -> Global filters: diverging bar click toggles outlet_category in global filters
@@ -1425,6 +2107,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                     current_filters.get("outlet_categories", []),
                     current_filters.get("regions", []),
                     current_filters.get("outlet_types", []),
+                    current_filters.get("months", ["March"]),
                 )
             key = f"t3g1|category={cat}"
             # Toggle behavior: clicking same category clears only the category filter
@@ -1437,6 +2120,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                     nf.get("outlet_categories", []),
                     nf.get("regions", []),
                     nf.get("outlet_types", []),
+                    nf.get("months", ["March"]),
                 )
             # Set selected category in global filters
             nf = dict(current_filters or {})
@@ -1447,6 +2131,48 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                 nf.get("outlet_categories", []),
                 nf.get("regions", []),
                 nf.get("outlet_types", []),
+                nf.get("months", ["March"]),
+                (["compare"] if nf.get("compare_months") else []),
+            )
+
+        # Special toggle behavior for Tab 1 q2: clear only its filters when clicking same segment
+        if trig_id == "graph-q2" and trig.get("value"):
+            point = trig["value"]["points"][0]
+            key = make_key(trig_id, point)
+            try:
+                reg = point.get("customdata", [None, None])[0]
+                cat = point.get("customdata", [None, None])[1]
+            except Exception:
+                reg, cat = None, None
+
+            if active_selection == key:
+                nf = dict(current_filters or {})
+                if reg:
+                    nf["regions"] = []
+                if cat:
+                    nf["outlet_categories"] = []
+                return (
+                    nf,
+                    None,
+                    nf.get("outlet_categories", []),
+                    nf.get("regions", []),
+                    nf.get("outlet_types", []),
+                    nf.get("months", ["March"]),
+                )
+
+            # Apply only the relevant filters (region/category), preserve others
+            nf = dict(current_filters or {})
+            if reg:
+                nf["regions"] = [reg]
+            if cat:
+                nf["outlet_categories"] = [cat]
+            return (
+                nf,
+                key,
+                nf.get("outlet_categories", []),
+                nf.get("regions", []),
+                nf.get("outlet_types", []),
+                nf.get("months", ["March"]),
             )
 
         if trig_id.startswith("graph-") and trig.get("value"):
@@ -1455,7 +2181,14 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
 
             if active_selection == key:
                 df = default_filters
-                return (df, None, [], [], [])
+                return (
+                    df,
+                    None,
+                    [],
+                    [],
+                    [],
+                    df.get("months", ["March"]),
+                )
 
             new_filters = default_filters.copy()
             if trig_id == "graph-q1":
@@ -1495,6 +2228,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                 new_filters.get("outlet_categories", []),
                 new_filters.get("regions", []),
                 new_filters.get("outlet_types", []),
+                new_filters.get("months", ["March"]),
             )
 
         return (
@@ -1503,6 +2237,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             current_filters.get("outlet_categories", []),
             current_filters.get("regions", []),
             current_filters.get("outlet_types", []),
+            current_filters.get("months", ["March"]),
         )
 
     # ----- Plot updates (stable colors via color_discrete_map) -----
@@ -1513,9 +2248,16 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         Input("filter-store", "data"),
     )
     def update_graphs(filters):
+        # Helper: combine month datasets based on selection
+        def _combine_months(tab_key: str):
+            from utils.dataframe import combine_month_frames
+            months = list((filters or {}).get("months") or ["March"])
+            return combine_month_frames(monthly_datasets or {}, months, tab_key)
+
+        tab1_cur = _combine_months("tab1") if monthly_datasets else tab1
         # Build filtered figures for q3 and q6
         figs_filtered = build_tab1_figures(
-            tab1,
+            tab1_cur,
             filters,
             all_outlet_categories,
             all_regions,
@@ -1525,9 +2267,10 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             GRAPH_LABELS,
         )
         # Build unfiltered figure for q2 (percentage chart should ignore filters)
+        unf_filters = {"months": list((filters or {}).get("months") or ["March"]) }
         figs_unfiltered = build_tab1_figures(
-            tab1,
-            {},
+            tab1_cur,
+            unf_filters,
             all_outlet_categories,
             all_regions,
             outlet_color_map,
@@ -1537,6 +2280,29 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         )
         # figs order: q1, q2, q3, q4, q5, q6
         return figs_filtered[2], figs_filtered[5], figs_unfiltered[1]
+
+    # ----- Sidebar compare toggle reset sync (avoid cyclic dependency) -----
+    # Guard: disable/enable sidebar compare toggle based on month count (no value writes)
+    @app.callback(
+        Output("month-compare-toggle-side", "options"),
+        Input("month-filter", "value"),
+        prevent_initial_call=False,
+    )
+    def guard_compare_sidebar(months_val):
+        months_list = list(months_val or [])
+        disabled = len(months_list) <= 1
+        # Return a single list (not a tuple) to match component prop type
+        # Use empty label; CSS will render the checkbox as a switch.
+        return [{"label": "", "value": "compare", "disabled": disabled}]
+
+    # Reset compare toggle value on Reset button
+    @app.callback(
+        Output("month-compare-toggle-side", "value"),
+        Input("reset-button", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def reset_compare_sidebar_value(_n):
+        return []
 
     # Tab 1 KPI cards removed per spec (no totals/overall at top)
 
@@ -1663,11 +2429,13 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         # Tab 1 mapping (ensure datasets match what's drawn)
         if triggered.startswith("btn-select-q"):
             # Build both full (unfiltered) and chart (current-filtered) datasets
-            df_q1_full, df_q2_full, df_q3_full, df_q4_full, df_q5_full = (
-                t1_get_filtered_frames(tab1, {})
+            tab1_full = combine_months({"months": list((filters or {}).get("months") or ["March"])}, "tab1")
+            df_q1_full, df_q2_full, df_q3_full, df_q4_full, df_q5_full = t1_get_filtered_frames(
+                tab1_full, {"months": list((filters or {}).get("months") or ["March"]) }
             )
-            df_q1_chart, df_q2_chart, df_q3_chart, df_q4_chart, df_q5_chart = (
-                t1_get_filtered_frames(tab1, (filters or {}))
+            tab1_chart = combine_months(filters, "tab1")
+            df_q1_chart, df_q2_chart, df_q3_chart, df_q4_chart, df_q5_chart = t1_get_filtered_frames(
+                tab1_chart, (filters or {})
             )
             # For q3, mirror the figure behavior: use region aggregates unless exactly one region selected
             regs_sel = list((filters or {}).get("regions") or [])
@@ -1767,8 +2535,10 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                     pass
         # Tab 2 dynamic (store UNFILTERED datasets for LLM)
         elif triggered == "btn-select-t2-dyn":
-            ret_full = t2_get_filtered_frames(tab2, {})
-            ret_chart = t2_get_filtered_frames(tab2, (filters or {}))
+            tab2_full = combine_months({"months": list((filters or {}).get("months") or ["March"])}, "tab2")
+            ret_full = t2_get_filtered_frames(tab2_full, {"months": list((filters or {}).get("months") or ["March"])})
+            tab2_chart = combine_months(filters, "tab2")
+            ret_chart = t2_get_filtered_frames(tab2_chart, (filters or {}))
             df1_full = ret_full[0] if isinstance(ret_full, tuple) else ret_full
             df1_chart = ret_chart[0] if isinstance(ret_chart, tuple) else ret_chart
             toggle("t2-graph-dyn", df1_full, df1_chart)
@@ -1802,8 +2572,9 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         # Tab 3 mapping (store UNFILTERED datasets for LLM)
         else:
             # Build both full (unfiltered) and chart (global+local filtered) datasets
+            tab3_full = combine_months({"months": list((filters or {}).get("months") or ["March"])}, "tab3")
             q1_t3_full, q2_t3_full, q3_t3_full, q4_t3_full = t3_get_filtered_frames(
-                data_dict_3 or {}, {}
+                tab3_full or {}, {"months": list((filters or {}).get("months") or ["March"]) }
             )
 
             # Merge global and local filters for chart scope
@@ -1830,17 +2601,17 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
                 "outlet_types": list(gf.get("outlet_types", [])),
             }
             q1_t3_chart, q2_t3_chart, q3_t3_chart, q4_t3_chart = t3_get_filtered_frames(
-                data_dict_3 or {}, merged
+                combine_months(filters, "tab3") or {}, merged
             )
             id_map3 = {
                 "btn-select-t3-1": ("t3-graph-1", q1_t3_full, q1_t3_chart),
                 # Profiles should match the static pre-aggregated radar source
                 "btn-select-t3-3": (
                     "t3-graph-2",
-                    (data_dict_3 or {}).get(
+                    (combine_months(filters, "tab3") or {}).get(
                         "radar-chart-before-filtering-q2", pd.DataFrame()
                     ),
-                    (data_dict_3 or {}).get(
+                    (combine_months(filters, "tab3") or {}).get(
                         "radar-chart-before-filtering-q2", pd.DataFrame()
                     ),
                 ),
@@ -2115,7 +2886,9 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             df_for_q3 = df_q4 if len(regs) == 1 else df_q1
 
             # Build unfiltered q2 dataset (rgn, category, count, pct) for view
-            _q1_unf, df_q2_unf, _d3, _d4, _d5 = t1_get_filtered_frames(tab1, {})
+            _q1_unf, df_q2_unf, _d3, _d4, _d5 = t1_get_filtered_frames(
+                combine_months(filters, "tab1"), {"months": list((filters or {}).get("months") or ["March"]) }
+            )
 
             id_map = {
                 "btn-view-q1": (0, df_q1, tq1),
@@ -2174,7 +2947,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             df_src = dict(filters or {})
             if t2_selected_region and "regions" in df_src:
                 df_src.pop("regions", None)
-            ret = t2_get_filtered_frames(tab2, df_src)
+            ret = t2_get_filtered_frames(combine_months(filters, "tab2"), df_src)
             q1_t2 = ret[0] if isinstance(ret, tuple) else ret
             if (
                 t2_selected_region
@@ -2195,17 +2968,17 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             # Tab 3 buttons: ensure each toggles its own table independently
             if triggered == "btn-view-t3-1":
                 # View complete data: show unfiltered q1
-                df = (data_dict_3 or {}).get("q1", pd.DataFrame())
+                df = (combine_months(filters, "tab3") or {}).get("q1", pd.DataFrame())
                 out[7] = None if tt3_1 else table_from_df(df)
                 out[8] = None
             elif triggered == "btn-view-t3-1-new":
                 # View data: show q2 table from data layer (pre-aggregated / sheet3)
-                df = (data_dict_3 or {}).get("q2", pd.DataFrame())
+                df = (combine_months(filters, "tab3") or {}).get("q2", pd.DataFrame())
                 out[8] = None if tt3_2 else table_from_df(df)
                 out[7] = None
             elif triggered == "btn-view-t3-3":
                 # Profiles: show pre-aggregated radar-source table before filtering
-                df = (data_dict_3 or {}).get(
+                df = (combine_months(filters, "tab3") or {}).get(
                     "radar-chart-before-filtering-q2", pd.DataFrame()
                 )
                 out[9] = None if tt3_3 else table_from_df(df)
@@ -2269,7 +3042,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
 
         # Use global filters directly; we will optionally apply a local region refinement below
         df_src = dict(filters or {})
-        df_tuple = t2_get_filtered_frames(tab2, df_src)
+        df_tuple = t2_get_filtered_frames(combine_months(filters, "tab2"), df_src)
         df = df_tuple[0] if isinstance(df_tuple, tuple) else df_tuple
         fig = px.scatter(
             title=GRAPH_LABELS.get("t2-graph-dyn", "Explore Parameter Relationships")
@@ -2518,8 +3291,10 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
             "search_text": gf.get("search_text", ""),
             "outlet_types": list(gf.get("outlet_types", [])),
         }
+        # Use month-aware combined dataset for Tab 3
+        tab3_cur = combine_months(gf, "tab3")
         figs = build_tab3_figures(
-            data_dict_3 or {},
+            tab3_cur or {},
             merged,
             outlet_color_map=outlet_color_map,
             tier_colors=tier_color_map(),
@@ -2579,6 +3354,31 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None):
         # No other Tab 3 interactions
         return newf
 
+    # ----- Comparison tab callbacks -----
+    @app.callback(
+        Output("compare-bar", "figure"),
+        Output("compare-table", "figure"),
+        Input("filter-store", "data"),
+        Input("compare-kpi", "value"),
+        prevent_initial_call=False,
+    )
+    def update_compare(filters, kpi_col):
+        try:
+            months = monthly_datasets or {}
+            # Expect keys 'March' and 'May' with tab3-like dicts (need q1)
+            # To ensure we have detailed frames, prefer tab3 datasets; fallback to tab2.
+            month_payload = {}
+            for label in ["March", "May"]:
+                src = months.get(label) or {}
+                d3 = src.get("tab3") or {}
+                if not isinstance(d3, dict) or not d3:
+                    d3 = {}
+                month_payload[label] = d3
+            fig_bar, fig_tbl = build_compare_figures(month_payload, filters or {}, kpi_col)
+            return fig_bar, fig_tbl
+        except Exception:
+            return dash.no_update, dash.no_update
+
     return app
 
 
@@ -2589,14 +3389,23 @@ if __name__ == "__main__":
             data_dict = _ensure_tab1_defaults({})
             data_dict_tab2 = {}
             data_dict_tab3 = {}
+            monthly = {}
         else:
-            data_dict = get_tab1_results()
-            data_dict_tab2 = get_tab2_results()
-            data_dict_tab3 = get_tab3_results()
-        app = create_dashboard(data_dict, data_dict_tab2, data_dict_tab3)
+            # Load March as default for existing tabs
+            data_dict = get_tab1_results("kpi_march")
+            data_dict_tab2 = get_tab2_results("kpi_march")
+            data_dict_tab3 = get_tab3_results("kpi_march")
+            # Load May for comparison
+            data_may_t1 = get_tab1_results("kpi_may")
+            data_may_t2 = get_tab2_results("kpi_may")
+            data_may_t3 = get_tab3_results("kpi_may")
+            monthly = {
+                "March": {"tab1": data_dict, "tab2": data_dict_tab2, "tab3": data_dict_tab3},
+                "May": {"tab1": data_may_t1, "tab2": data_may_t2, "tab3": data_may_t3},
+            }
+        app = create_dashboard(data_dict, data_dict_tab2, data_dict_tab3, monthly)
         app.run(debug=True, port=8090)
     except ImportError:
-        print("Error: Could not import 'get_tab1_results' from 'data_layer.tab_1'.")
         print(
             "Please ensure the file exists and the 'src' directory is in your Python path."
         )

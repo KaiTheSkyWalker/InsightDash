@@ -99,7 +99,7 @@ def build_tab1_figures(
     - q5: Bottom Outlets by Score
     - q6: Outlet Count by Category
     """
-    df_q1, _df2, _df3, df_q4, df_q5 = get_filtered_frames(data_dict, filters)
+    df_q1, df_q2, _df3, df_q4, df_q5 = get_filtered_frames(data_dict, filters)
 
     def pick_col(d: pd.DataFrame, prefer: List[str], fallback: List[str] | None = None):
         # Prefer real (non-null) columns first, then fall back to presence-only
@@ -155,29 +155,11 @@ def build_tab1_figures(
 
     # 2) 100% stacked bar: Category mix by Region (A/B/C/D) — compute % manually for compatibility
     fig_q2 = go.Figure()
-    if not df_q1.empty:
-        rcol = pick_col(df_q1, ["Region"], ["rgn"])
-        cat_cols = [
-            c for c in ["cat_a", "cat_b", "cat_c", "cat_d"] if c in df_q1.columns
-        ]
-        if rcol and cat_cols:
-            mix = df_q1[[rcol] + cat_cols].copy()
-            mix = mix.melt(id_vars=[rcol], var_name="category", value_name="count")
-            # Friendly labels A/B/C/D
-            try:
-                mix["category"] = (
-                    mix["category"].str.extract(r"cat_([abcd])")[0].str.upper()
-                )
-            except Exception:
-                pass
-            # Compute percentage per region
-            try:
-                totals = mix.groupby(rcol, dropna=False)["count"].transform("sum")
-                mix["pct"] = (mix["count"] / totals) * 100.0
-            except Exception:
-                mix["pct"] = mix["count"]
+    if isinstance(df_q2, pd.DataFrame) and not df_q2.empty:
+        rcol = "rgn" if "rgn" in df_q2.columns else ("Region" if "Region" in df_q2.columns else None)
+        if rcol and {"category", "pct"}.issubset(set(df_q2.columns)):
             fig_q2 = px.bar(
-                mix,
+                df_q2,
                 x=rcol,
                 y="pct",
                 color="category",

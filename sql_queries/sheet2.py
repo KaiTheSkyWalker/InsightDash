@@ -1,5 +1,7 @@
-second_sql_map = {
-    "dynamic-scatter-plot": """
+def build_second_sql_map(table_name: str) -> dict[str, str]:
+    t = f"master.cr_kpi.{table_name}"
+    return {
+        "dynamic-scatter-plot": f"""
 SELECT
     sales_outlet,
     rgn,
@@ -21,10 +23,10 @@ SELECT
     eappointment_pct,
     qpi_pct,
     cs_service_pct
-FROM master.cr_kpi.kpi_outlet
+FROM {t}
 WHERE new_car_reg_pct IS NOT NULL
    OR gear_up_ach_pct IS NOT NULL
    OR cs_sales_pct IS NOT NULL
    OR nps_sales_pct IS NOT NULL;
 """
-}
+    }

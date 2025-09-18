@@ -3,23 +3,6 @@ from typing import Dict, Tuple, Optional, List
 import pandas as pd
 
 
-KPI_COLS = [
-    "new_car_reg_pct",
-    "gear_up_ach_pct",
-    "pov_pct",
-    "ins_renew_1st_pct",
-    "ins_renew_overall_pct",
-    "intake_pct",
-    "revenue_pct",
-    "parts_pct",
-    "lubricant_pct",
-    "eappointment_pct",
-    "nps_sales_pct",
-    "cs_service_pct",
-    "qpi_pct",
-]
-
-
 def get_filtered_frames(
     tab2: Dict[str, pd.DataFrame], filters: Dict
 ) -> Tuple[pd.DataFrame,]:

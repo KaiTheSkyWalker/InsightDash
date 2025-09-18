@@ -3,7 +3,12 @@
 /* Apply Google Font across the app */
 html, body, #root, #_dash-app-content {
   font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif;
+  height: 100%;
 }
+
+/* Remove default body margin and make app stretch the viewport */
+html, body { margin: 0; }
+#_dash-app-content { min-height: 100vh; display: flex; flex-direction: column; }
 
 /* Plotly figure theming tweaks */
 .dash-graph .gtitle { display: none !important; }
@@ -48,3 +53,34 @@ button[id^="btn-select"]:active, button[id^="btn-view"]:active {
 
 /* Chips etc adopt blue hues */
 .chip { background: #e8f0fe; border: 1px solid #d0e2ff; color: #1e3a8a; }
+
+/* Switch-style toggle for the compare months checklist */
+.switch-toggle label { display: inline-flex; align-items: center; gap: 8px; }
+.switch-toggle input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 42px;
+  height: 24px;
+  background: #d1d5db;
+  border-radius: 9999px;
+  position: relative;
+  outline: none;
+  cursor: pointer;
+  transition: background-color 160ms ease;
+  border: 1px solid #c7ced6;
+}
+.switch-toggle input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: #ffffff;
+  border-radius: 9999px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+  transition: transform 160ms ease;
+}
+.switch-toggle input[type="checkbox"]:checked { background: #2563EB; border-color: #1D4ED8; }
+.switch-toggle input[type="checkbox"]:checked::after { transform: translateX(18px); }
+.switch-toggle span { display: none; }

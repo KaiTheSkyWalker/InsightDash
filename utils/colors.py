@@ -31,49 +31,7 @@ diverse_palette = [
     "#EF4444",  # Red 500
 ]
 
-# Ultra-contrast monochrome-blue theme (dark navy → vivid blues → cyan → light blues)
-ultra_blue_palette = [
-    "#001B44",  # Deep Navy (very dark)
-    "#0B2E4E",  # Navy
-    "#004080",  # Strong navy-blue
-    "#0069D9",  # Vivid blue
-    "#1D4ED8",  # Blue 700
-    "#2563EB",  # Blue 600
-    "#3B82F6",  # Blue 500
-    "#60A5FA",  # Blue 400
-    "#0EA5E9",  # Sky 500
-    "#00B3FF",  # Bright cyan
-    "#93C5FD",  # Blue 300
-    "#BFDBFE",  # Blue 200
-]
-
-# Purple–Blue–Green high‑contrast theme
-# Purple–Blue–Green high‑contrast theme
-pbg_palette = [
-    "#7C3AED",  # Purple 600
-    "#1D4ED8",  # Blue 700
-    "#059669",  # Green 600
-    "#A78BFA",  # Purple 300
-    "#60A5FA",  # Blue 400
-    "#34D399",  # Green 400
-]
-
-# Purple–Green–Blue–Orange mixed palette (high contrast, multiple shades)
-# Purple–Green–Blue–Orange mixed palette (high contrast, multiple shades)
-pgbo_palette = [
-    "#6D28D9",  # Purple 700
-    "#FFE600",  # Purple 600
-    "#A78BFA",  # Purple 300
-    "#065F46",  # Green 800
-    "#CD2598",  # Green 600
-    "#34D399",  # Green 400
-    "#1E3A8A",  # Blue 800
-    "#1D4ED8",  # Blue 700
-    "#60A5FA",  # Blue 400
-    "#D97706",  # Orange 600
-    "#F59E0B",  # Orange 500
-    "#FB923C",  # Orange 400
-]
+# (Removed several unused experimental palettes to keep API lean.)
 
 # Brand palette from user (Lush Aqua, Jungle Book Green, Dewberry, Harissa Red, Moscow Papyrus, Bright Orange, Pale Narcissus)
 brand_palette = [

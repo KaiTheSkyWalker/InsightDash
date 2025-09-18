@@ -212,7 +212,32 @@ def build_tab3_figures(
                 font=dict(color="#6b7280"),
             )
             return fig
-        sub = df_src[df_src["outlet_type"] == typ]
+        sub = df_src[df_src["outlet_type"] == typ].copy()
+        # Enforce KPI scope by outlet type: set out-of-scope KPIs to 0
+        sales_kpis = {
+            "new_car_reg_pct",
+            "gear_up_ach_pct",
+            "ins_renew_1st_pct",
+            "ins_renew_overall_pct",
+            "pov_pct",
+            "nps_sales_pct",
+            "cs_sales_pct",
+        }
+        service_kpis = {
+            "intake_pct",
+            "revenue_pct",
+            "parts_pct",
+            "lubricant_pct",
+            "eappointment_pct",
+            "qpi_pct",
+            "cs_service_pct",
+        }
+        if typ == "1S":
+            for col in service_kpis.intersection(sub.columns):
+                sub[col] = 0
+        if typ == "2S":
+            for col in sales_kpis.intersection(sub.columns):
+                sub[col] = 0
         if sub.empty:
             fig.update_layout(
                 title=f"{typ} — Average Performance Profile {title_suffix}",

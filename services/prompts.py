@@ -18,19 +18,24 @@ def build_kb_text() -> str:
         "- D: Performance < threshold AND Quality < threshold (poor performer).\n\n"
         "Categorical Hierarchy: A > B > C > D. When comparing categories, treat A as strictly better than B, B better than C, and so on.\n\n"
         "Outlet Types indicate business functions and relevant KPIs: **1S (Sales only)**, **2S (Service only)**, **1+2S/3S (Sales & Service)**.\n"
-        "- 1S focus KPIs: New Car Reg, Gear Up, Insurance, POV, NPS Sales. \n"
-        "- 2S focus KPIs: Intake, Revenue, Parts, Lubricant, NPS Svc, E-Appointment, QPI.\n"
+        "- 1S KPIs: New Car Reg, Gear Up, Insurance, POV, NPS Sales. \n"
+        "- 2S KPIs: Intake, Revenue, Parts, Lubricant, NPS Svc, E-Appointment, QPI.\n"
         "- 1+2S/3S use blended metrics from both sides.\n\n"
         "Definition of Quality vs Performance parameters (use this consistently):\n"
         "- Quality parameters: QPI (qpi_pct), E-Appointment (eappointment_pct), NPS Sales (nps_sales_pct), NPS Service (cs_service_pct).\n"
         "- All other KPI % metrics belong to Performance.\n\n"
         "Axis Thresholds by Outlet Type (for interpreting X/Y scatter parameters):\n"
+        "### Y is performance , X is quality\n"
         "- 1S: Threshold X = 35, Threshold Y = 60.\n"
         "- 2S: Threshold X = 40, Threshold Y = 55.\n"
         "- 1+2S: Threshold X = 30, Threshold Y = 50.\n"
         "- 3S: Threshold X = 35, Threshold Y = 60.\n\n"
         "Interpreting % Achievement: 100% = target achieved; >100% = target exceeded; <100% = gap.\n"
         "Some KPIs (e.g., NPS, QPI) are composites or tiered scores; >100% still indicates exceeding the blended target.\n"
+        "\nOutlet Type KPI Scope Rule:\n"
+        "- 1S (Sales-only) focus KPIs: New Car Reg, Gear Up, Insurance, POV, NPS Sales. Treat service KPIs as 0/NA for 1S.\n"
+        "- 2S (Service-only) focus KPIs: Intake, Revenue, Parts, Lubricant, NPS Svc, E-Appointment, QPI. Treat sales KPIs as 0/NA for 2S.\n"
+        "- 1+2S/3S use blended metrics from both sides; all KPIs apply.\n"
     )
 
 
@@ -40,6 +45,8 @@ def build_role_block() -> str:
         "Critical Directive: Your analysis MUST be based exclusively on the provided figures. You MUST NOT infer any time-based trends (e.g., improvement, decline, momentum) as this is a single point in time.\n\n"
         "Non-Negotiable Context: All insights must frame performance through the fundamental trade-off between short-term financial performance (sales, revenue) and long-term customer health (satisfaction, loyalty).\n"
         "**Quantification Mandate: You MUST quantify all claims. Instead of 'low' or 'high', state the actual values, ranges, and percentages. Estimate potential impact (e.g., revenue risk, churn probability) based on the magnitude of quality gaps.**\n\n"
+        "Timeframe Guard: Do NOT mention or assume timeframes (e.g., 'MTD', 'YTD', 'MoM', 'YoY') unless these exact terms appear in the dataset columns or metadata."
+        " If absent, treat percentages as timeless normalized achievements and avoid any timeframe terminology.\n\n"
     )
 
 
@@ -82,44 +89,6 @@ def build_data_dictionary() -> str:
     )
 
 
-def build_thinking_process_block() -> str:
-    return (
-        "\nTHINKING PROCESS & ANALYTICAL FRAMEWORK:\n"
-        "1. DATA-DRIVEN STORY IDENTIFICATION:\n"
-        "   - First understand the data structure: What are the key dimensions, metrics, and segments?\n"
-        "   - Identify the dominant patterns: What immediately stands out as exceptional (high/low values, distributions)?\n"
-        "   - Look for contradictions: Where does the data contradict expected patterns or business assumptions?\n"
-        "   - Never assume patterns exist; let the data reveal the true story.\n\n"
-        "2. PATTERN ANALYSIS WITH QUANTITATIVE RIGOR:\n"
-        "   - For any observed pattern, quantify its magnitude and significance. Use exact values, ranges, and percentages.\n"
-        "   - **RISK QUANTIFICATION: For the outlets, estimate the potential business risk. Calculate the gap between their quality score and the threshold. The larger the gap and the group size, the higher the potential revenue loss and customer churn risk.**\n"
-        "   - Compare against relevant benchmarks (thresholds, averages, targets).\n"
-        "   - Assess pattern consistency across different segments and dimensions.\n"
-        "   - Identify whether patterns represent opportunities, risks, or anomalies.\n\n"
-        "3. ROOT CAUSE HYPOTHESIS DEVELOPMENT:\n"
-        "   - Develop data-supported hypotheses for why patterns exist.\n"
-        "   - **CLARITY ON PERFORMANCE: When labeling performance (e.g., 'high'), explicitly name the driving KPI(s) (e.g., 'high car_reg_pct of 150%'). Never use vague terms.**\n"
-        "   - Look for correlations between different metrics that might explain observed patterns.\n"
-        "   - Consider both performance drivers and potential quality compromises.\n"
-        "   - Acknowledge when data is insufficient to determine causality.\n\n"
-        "4. ACTIONABLE INSIGHT GENERATION:\n"
-        "   - Translate patterns into business implications: What do these patterns mean for short-term results and long-term health?\n"
-        "   - **PRIORITIZATION: Rank recommendations by potential impact and urgency. Data integrity issues (e.g., 0 values) are top priority. Then address the largest quality gaps affecting the most outlets.**\n"
-        "   - Provide specific, evidence-based recommendations tied directly to the data patterns.\n"
-        "   - Clearly distinguish between strategic imperatives and tactical optimizations.\n\n"
-        "5. COMMUNICATION PRINCIPLES:\n"
-        "   - Lead with the most important finding, supported by quantitative evidence.\n"
-        "   - Avoid absolute statements; use probability-based language ('suggests', 'indicates', 'likely').\n"
-        "   - Acknowledge data limitations and boundaries of the analysis.\n"
-        "   - Connect insights to business outcomes, not just statistical patterns.\n\n"
-        "6. QUALITY-PERFORMANCE TRADEOFF ASSESSMENT (SPECIFIC TO CR KPI CONTEXT):\n"
-        "   - Always evaluate whether performance achievements come at the expense of quality metrics.\n"
-        "   - **DEFINE 'HEALTHY': Describe 'A' outlets as 'sustainable' or 'balanced'. Explicitly state they achieve high performance KPIs (name them, e.g., revenue_pct >100%) WHILE maintaining high quality scores (name them, e.g., cs_service_pct > threshold).**\n"
-        "   - Identify where quality investments might be compromising short-term performance.\n"
-        "   - Assess the sustainability of current performance-quality balance.\n"
-        "   - Recommend adjustments to optimize the performance-quality equilibrium.\n"
-    )
-
 
 def build_generalized_insight_prompt() -> str:
     """
@@ -133,6 +102,7 @@ def build_generalized_insight_prompt() -> str:
         "- Quantify your findings with precise numbers, ranges, or counts.\n"
         "  - **Example:** 'The [metric_name] for [Segment A] ranges from [X] to [Y].'\n"
         "  - **Example:** '[Number] of entities have a value of 0 for the [metric_name] parameter.'\n\n"
+        "- Always state the explicit min and max for each numeric KPI you reference. If grouped statistics by 'outlet_category' or 'outlet_type' are provided, include the per-group min and max for the primary KPI(s).\n\n"
         "### 2. Interpretation\n"
         "- Explain the business or practical implications of your observations.\n"
         "- Identify the key drivers behind the observed patterns and the relationships between metrics.\n"
@@ -185,6 +155,7 @@ def extract_graph_parameters(payload: dict) -> list:
 def build_parameter_focus_instructions(parameters: list) -> str:
     if not parameters:
         return ""
+
     bullet_lines = "".join([f"- {p}\n" for p in parameters])
     # Tailored requirements for common x/y/legend parameters
     has_quality = "rate_quality" in parameters
@@ -222,6 +193,90 @@ def build_parameter_focus_instructions(parameters: list) -> str:
     )
 
 
+def _format_col_stats(name: str, st: dict) -> str:
+    missing = st.get("missing", 0)
+    if {"min", "max", "mean"}.issubset(st.keys()):
+        return (
+            f"- {name}: min={st.get('min')}, p25={st.get('p25')}, median={st.get('median')}, "
+            f"p75={st.get('p75')}, max={st.get('max')}, mean={st.get('mean')}, std={st.get('std')} (missing={missing})"
+        )
+    if "true" in st and "false" in st:
+        return f"- {name}: true={st.get('true')}, false={st.get('false')} (missing={missing})"
+    if "unique" in st:
+        tops = st.get("top") or []
+        tops_s = ", ".join(
+            f"{t.get('value')}={t.get('count')} ({t.get('pct')}%)" for t in tops
+        )
+        return f"- {name}: unique={st.get('unique')}, top: {tops_s} (missing={missing})"
+    if "min" in st and "max" in st:
+        return f"- {name}: min={st.get('min')}, max={st.get('max')} (missing={missing})"
+    return f"- {name}: count={st.get('count', 0)} (missing={missing})"
+
+
+def build_computed_stats_block(payload: dict) -> str:
+    lines = []
+    charts = payload.get("charts", []) or []
+    any_stats = False
+    for ch in charts:
+        stats = ch.get("computed_stats") or {}
+        gstats = ch.get("group_stats") or {}
+        if not stats and not gstats:
+            continue
+        any_stats = True
+        title = ch.get("graph_label") or ch.get("graph_id")
+        lines.append(f"### Computed Statistics — {title}")
+        if stats:
+            for col, st in stats.items():
+                try:
+                    lines.append(_format_col_stats(col, st))
+                except Exception:
+                    pass
+            lines.append("")
+        if gstats:
+            lines.append("Grouped statistics by dimension:")
+            for dim, groups in gstats.items():
+                lines.append(f"- By {dim}:")
+                for gval, cols in groups.items():
+                    lines.append(f"  - {gval}:")
+                    for cname, st in cols.items():
+                        lines.append(
+                            f"    - {cname}: min={st.get('min')}, max={st.get('max')}, range={st.get('range')}, mean={st.get('mean')} (n={st.get('count')})"
+                        )
+            lines.append("")
+        # Include large-table context stats if present (Tab 3 special handling)
+        ctx = ch.get("context_stats") or {}
+        if ctx:
+            big = ctx.get("large_computed_stats") or {}
+            bigg = ctx.get("large_group_stats") or {}
+            lines.append("Additional context statistics (large table):")
+            for col, st in (big.items() if isinstance(big, dict) else []):
+                try:
+                    lines.append(_format_col_stats(col, st))
+                except Exception:
+                    pass
+            if bigg:
+                lines.append("- Grouped (large table):")
+                for dim, groups in bigg.items():
+                    lines.append(f"  - By {dim}:")
+                    for gval, cols in groups.items():
+                        lines.append(f"    - {gval}:")
+                        for cname, st in cols.items():
+                            lines.append(
+                                f"      - {cname}: min={st.get('min')}, max={st.get('max')}, range={st.get('range')}, mean={st.get('mean')} (n={st.get('count')})"
+                            )
+            lines.append("")
+    if not any_stats:
+        return ""
+    header = (
+        "\nCOMPUTED STATISTICS (authoritative, precomputed from pandas):\n"
+        "Use ONLY the computed statistics below for the 'Observation' section.\n"
+        "Do NOT do any arithmetic yourself; treat these as exact facts.\n"
+        "MANDATORY: Explicitly state the min and max for each numeric column. If grouped statistics are provided (by 'outlet_category' or 'outlet_type'), include the min and max per group for the primary KPIs you discuss.\n"
+        "If both a small and large table are present for a chart (e.g., Tab 3 KPI gaps), FOCUS your Observations on the SMALL table; use the large-table statistics only as supporting context.\n\n"
+    )
+    return header + "\n".join(lines)
+
+
 def build_prompt_individual(
     payload: dict, context_text: str = "", focus_hint: str = ""
 ) -> str:
@@ -229,12 +284,72 @@ def build_prompt_individual(
     KB_TEXT = build_kb_text()
     CATEGORY_RULE = build_categorical_analysis_rule()
     DATA_DICTIONARY = build_data_dictionary()
-    THINKING_PROCESS = build_thinking_process_block()
     OUTPUT_BLOCK = build_generalized_insight_prompt()
 
     # Build parameter focus instructions from graph parameters
     parameter_focus_instructions = build_parameter_focus_instructions(
         extract_graph_parameters(payload)
+    )
+
+    computed_block = build_computed_stats_block(payload)
+
+    # Month-aware instruction: if any table contains a 'Month' column, require explicit month comparisons
+    def _has_month(p: dict) -> bool:
+        try:
+            cols = p.get("columns") or []
+            if any(str(c) == "Month" for c in cols):
+                return True
+        except Exception:
+            pass
+        try:
+            rows = p.get("rows") or []
+            if rows and isinstance(rows, list) and isinstance(rows[0], dict):
+                if any("Month" in r for r in rows[:5]):
+                    return True
+        except Exception:
+            pass
+        try:
+            gs = p.get("group_stats") or {}
+            if isinstance(gs, dict) and "Month" in gs:
+                return True
+        except Exception:
+            pass
+        try:
+            cstats = p.get("context_stats") or {}
+            lgs = cstats.get("large_group_stats") if isinstance(cstats, dict) else {}
+            if isinstance(lgs, dict) and "Month" in lgs:
+                return True
+        except Exception:
+            pass
+        return False
+
+    month_present = False
+    try:
+        if isinstance(payload, dict) and "charts" in payload:
+            for ch in payload.get("charts") or []:
+                if isinstance(ch, dict) and (
+                    _has_month(ch)
+                    or (isinstance(ch.get("filters"), dict) and len(ch["filters"].get("months", [])) > 1)
+                ):
+                    month_present = True
+                    break
+        else:
+            month_present = _has_month(payload) or (
+                isinstance(payload.get("filters"), dict)
+                and len(payload["filters"].get("months", [])) > 1
+            )
+    except Exception:
+        month_present = False
+
+    MONTH_DIRECTIVE = (
+        "\nMONTH-AWARE DIRECTIVE:\n"
+        "If a 'Month' column is present, you MUST compare months explicitly.\n"
+        "- Quantify month-over-month deltas for the key KPIs you discuss (state sign and magnitude).\n"
+        "- Identify where performance improved or declined the most by outlet_category/region/outlet_type as applicable.\n"
+        "- Use only the provided computed statistics and grouped stats by 'Month' (if present) to support claims.\n"
+        "- Keep comparisons concise and prioritized; avoid repeating trivial differences.\n"
+        if month_present
+        else ""
     )
 
     return (
@@ -249,8 +364,9 @@ def build_prompt_individual(
         + "\nDATA DICTIONARY:\n"
         + DATA_DICTIONARY
         + (f"\nContext/Purpose: {context_text}\n" if context_text else "")
-        + THINKING_PROCESS
         + parameter_focus_instructions
+        + computed_block
+        + MONTH_DIRECTIVE
         + OUTPUT_BLOCK
         + "JSON follows:\n```json\n"
         + json.dumps(payload, ensure_ascii=False)
@@ -265,7 +381,6 @@ def build_prompt_combined(
     KB_TEXT = build_kb_text()
     CATEGORY_RULE = build_categorical_analysis_rule()
     DATA_DICTIONARY = build_data_dictionary()
-    THINKING_PROCESS = build_thinking_process_block()
 
     # Build parameter focus instructions across all included charts
     parameter_focus_instructions = build_parameter_focus_instructions(
@@ -284,7 +399,6 @@ def build_prompt_combined(
         + "\nDATA DICTIONARY:\n"
         + DATA_DICTIONARY
         + (f"\nContext/Purpose: {context_text}\n" if context_text else "")
-        + THINKING_PROCESS
         + parameter_focus_instructions
         + "Structure your integrated report as follows:\n"
         "\n"
