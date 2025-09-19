@@ -1232,14 +1232,19 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     live_meta["color"] = t2_color_current
                 if live_meta:
                     item["meta"] = live_meta
-            charts_payload.append(item)
-
-            # If user enabled Compare Months, add per-month payloads via DRY helper
+            # Determine if month comparison is active for this request
             try:
                 sel_months = list((filters or {}).get("months") or [])
                 compare_on = len(sel_months) > 1 or bool((filters or {}).get("compare_months"))
             except Exception:
                 sel_months, compare_on = [], False
+
+            # When not comparing months, include the combined/concatenated dataset
+            if not compare_on:
+                charts_payload.append(item)
+
+            # If user enabled Compare Months, add per-month payloads via DRY helper and
+            # intentionally skip the concatenated one so the LLM only sees per-month frames.
             if compare_on:
                 from utils.df_summary import describe_by_column, grouped_stats_selected
                 for mlabel in sel_months:
