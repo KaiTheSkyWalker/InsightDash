@@ -1,3 +1,4 @@
+from loguru import logger
 from typing import Optional, Tuple
 
 from config.settings import (
@@ -33,17 +34,43 @@ def generate_markdown_from_prompt(
     """
     model = model_name or SETTINGS_MODEL
     key = api_key or SETTINGS_API_KEY
+    usage_logger = logger.bind(usage=True)
 
     try:
         if HAVE_NEW_GENAI and key:
             client = genai.Client(api_key=key)
             resp = client.models.generate_content(model=model, contents=[prompt])
+            
+            # Extract usage metadata
+            usage_metadata = getattr(resp, "usage_metadata", None)
+            if usage_metadata:
+                prompt_token_count = usage_metadata.prompt_token_count
+                candidates_token_count = usage_metadata.candidates_token_count
+                total_token_count = usage_metadata.total_token_count
+
+                # Cost calculation (example for gemini-1.5-pro)
+                cost = ((prompt_token_count / 1_000_000) * 7) + ((candidates_token_count / 1_000_000) * 21)
+
+                usage_logger.info(f"Tokens: {total_token_count} (prompt: {prompt_token_count}, candidates: {candidates_token_count}) | Cost: ${cost:.6f}")
+
             return getattr(resp, "text", None), None
 
         if HAVE_LEGACY_GENAI and key:
             genai_legacy.configure(api_key=key)
             model_client = genai_legacy.GenerativeModel(model)
             resp = model_client.generate_content([prompt])
+            
+            # Extract usage metadata
+            usage_metadata = getattr(resp, "usage_metadata", None)
+            if usage_metadata:
+                prompt_token_count = usage_metadata.prompt_token_count
+                candidates_token_count = usage_metadata.candidates_token_count
+                total_token_count = usage_metadata.total_token_count
+
+                # Cost calculation (example for gemini-2.0-flash)
+                cost = ((prompt_token_count / 1_000_000) * 0.1) + ((candidates_token_count / 1_000_000) * 0.4)
+                usage_logger.info(f"Tokens: {total_token_count} (prompt: {prompt_token_count}, candidates: {candidates_token_count}) | Cost: ${cost:.6f}")
+                
             return getattr(resp, "text", None), None
 
         # Not configured

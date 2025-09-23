@@ -1,5 +1,5 @@
 def build_second_sql_map(table_name: str) -> dict[str, str]:
-    t = f"master.cr_kpi.{table_name}"
+    t = f"cr_kpi.{table_name}"
     return {
         "dynamic-scatter-plot": f"""
 SELECT

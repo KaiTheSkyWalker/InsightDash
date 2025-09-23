@@ -1,5 +1,5 @@
 def build_first_sql_map(table_name: str) -> dict[str, str]:
-    t = f"master.cr_kpi.{table_name}"
+    t = f"cr_kpi.{table_name}"
     return {
         "scatter-plot-q1": f"""SELECT 
     rgn,

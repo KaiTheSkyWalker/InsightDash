@@ -1,0 +1,15 @@
+Tab1, 1st Graph 2025-09-23 17:08:19 | INFO | Tokens: 4743 (prompt: 4045, candidates: 698) | Cost: $0.000684
+Tab1, 1st & 2nd Graph 2025-09-23 17:08:29 | INFO | Tokens: 5268 (prompt: 4451, candidates: 817) | Cost: $0.000772
+Tab1, All 3 Graph 2025-09-23 17:08:39 | INFO | Tokens: 8428 (prompt: 7599, candidates: 829) | Cost: $0.001092
+
+Tab2, 2nd Graph 2025-09-23 17:09:09 | INFO | Tokens: 84053 (prompt: 83359, candidates: 694) | Cost: $0.008613
+
+Tab3 1st Graph 2025-09-23 17:15:00 | INFO | Tokens: 23120 (prompt: 22291, candidates: 829) | Cost: $0.002561
+
+Tab3 All 2 Graph 2025-09-23 17:15:17 | INFO | Tokens: 87632 (prompt: 86576, candidates: 1056) | Cost: $0.009080
+
+April + May, Tab1 All 3 Graph 2025-09-23 17:17:12 | INFO | Tokens: 14141 (prompt: 13130, candidates: 1011) | Cost: $0.001717
+
+April + May, All Tab1 + Tab2 Graphs
+2025-09-23 17:18:16 | INFO | Tokens: 177952 (prompt: 177091, candidates: 861) | Cost: $0.018054
+2025-09-23 17:19:03 | INFO | Tokens: 177793 (prompt: 177091, candidates: 702) | Cost: $0.017990

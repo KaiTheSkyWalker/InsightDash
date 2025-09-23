@@ -1,5 +1,5 @@
 import pandas as pd
-from sql_queries.tab import build_second_sql_map
+from sql_queries.tab2 import build_second_sql_map
 from .base import execute_queries
 
 def remap_tab2(results: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:

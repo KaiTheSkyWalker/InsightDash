@@ -2149,7 +2149,6 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 nf.get("regions", []),
                 nf.get("outlet_types", []),
                 nf.get("months", ["april"]),
-                (["compare"] if nf.get("compare_months") else []),
             )
 
         # Special toggle behavior for Tab 1 q2: clear only its filters when clicking same segment
