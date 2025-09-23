@@ -7,13 +7,13 @@ def get_layout():
     - Layer 1: Diverging Bar — full width
     - Layer 2: Radar (full width)
     """
-    half = {"width": "49%", "display": "inline-block", "verticalAlign": "top"}
-    full = {
-        "width": "98%",
-        "display": "inline-block",
-        "verticalAlign": "top",
+    two_col_row = {
         "marginTop": "10px",
+        "display": "flex",
+        "gap": "18px",
+        "flexWrap": "wrap",
     }
+    split_card_style = {"flex": "1", "minWidth": "320px"}
     return html.Div(
         [
             dcc.Store(id="t3-active-table-store", data=None),
@@ -61,7 +61,7 @@ def get_layout():
                             html.Div(id="table-t3-1"),
                             html.Div(id="table-t3-2"),
                         ],
-                        style=full,
+                        className="dashboard-card",
                     ),
                 ]
             ),
@@ -98,7 +98,7 @@ def get_layout():
                             # Independent table container for profiles section
                             html.Div(id="table-t3-3"),
                         ],
-                        style=full,
+                        className="dashboard-card",
                     ),
                 ],
                 style={"marginTop": "10px"},
@@ -119,7 +119,8 @@ def get_layout():
                             ),
                             dcc.Graph(id="t3-graph-2", style={"height": "520px"}),
                         ],
-                        style=half,
+                        className="dashboard-card",
+                        style=split_card_style,
                     ),
                     html.Div(
                         [
@@ -134,10 +135,11 @@ def get_layout():
                             ),
                             dcc.Graph(id="t3-graph-2-2s", style={"height": "520px"}),
                         ],
-                        style=half,
+                        className="dashboard-card",
+                        style=split_card_style,
                     ),
                 ],
-                style={"marginTop": "10px"},
+                style=two_col_row,
             ),
             html.Div(
                 [
@@ -154,7 +156,8 @@ def get_layout():
                             ),
                             dcc.Graph(id="t3-graph-2-1p2s", style={"height": "520px"}),
                         ],
-                        style=half,
+                        className="dashboard-card",
+                        style=split_card_style,
                     ),
                     html.Div(
                         [
@@ -169,10 +172,11 @@ def get_layout():
                             ),
                             dcc.Graph(id="t3-graph-2-3s", style={"height": "520px"}),
                         ],
-                        style=half,
+                        className="dashboard-card",
+                        style=split_card_style,
                     ),
                 ],
-                style={"marginTop": "10px"},
+                style=two_col_row,
             ),
             # Remove supporting scatter and placeholders per new spec (two charts only)
         ],

@@ -9,7 +9,13 @@ def get_layout():
                 [
                     html.Div(
                         [
-                            html.Label("KPI"),
+                            html.Div("Monthly KPI Trend", className="graph-title"),
+                        ],
+                        className="graph-header",
+                    ),
+                    html.Div(
+                        [
+                            html.Label("KPI", style={"fontWeight": "600"}),
                             dcc.Dropdown(
                                 id="compare-kpi",
                                 options=[{"label": disp, "value": col} for col, disp in KPI_DISPLAY],
@@ -17,21 +23,28 @@ def get_layout():
                                 clearable=False,
                             ),
                         ],
-                        style={"flex": "1", "marginRight": "10px"},
+                        style={"marginBottom": "12px"},
                     ),
+                    dcc.Graph(id="compare-bar"),
                 ],
-                style={"display": "flex", "marginBottom": "8px"},
+                className="dashboard-card",
             ),
-            dcc.Graph(id="compare-bar"),
-            html.Hr(),
             html.Div(
                 [
-                    html.H4("Category Summary (Avg %)", style={"margin": "8px 0"}),
+                    html.Div(
+                        [
+                            html.Div(
+                                "Category Summary (Avg %, Δ)",
+                                className="graph-title",
+                            ),
+                        ],
+                        className="graph-header",
+                    ),
                     dcc.Loading(
                         dcc.Graph(id="compare-table", figure={}), type="dot"
                     ),
-                ]
+                ],
+                className="dashboard-card",
             ),
         ]
     )
-

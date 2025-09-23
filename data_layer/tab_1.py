@@ -1,5 +1,5 @@
 import pandas as pd
-from sql_queries.sheet1 import build_first_sql_map
+from sql_queries.tab1 import build_first_sql_map
 from .base import execute_queries
 
 def remap_tab1(results: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
@@ -19,9 +19,9 @@ def remap_tab1(results: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
             results.setdefault("q1", pd.DataFrame())
     return results
 
-def get_tab1_results(table_name: str = "kpi_march"):
+def get_tab1_results(table_name: str = "kpi_april"):
     """Execute SQL and normalize keys expected by Tab 1 figures.
 
-    table_name: target month table (e.g., 'kpi_march', 'kpi_may')
+    table_name: target month table (e.g., 'kpi_april', 'kpi_may')
     """
     return execute_queries(build_first_sql_map(table_name), "Tab1", remap_tab1)

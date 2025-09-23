@@ -1,5 +1,6 @@
 import dash
 import re
+from typing import Dict
 from dash import dcc, html, Input, Output, State, ctx, no_update
 from dash import dash_table
 from dash.exceptions import PreventUpdate
@@ -247,7 +248,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
     # ----- Month combination helper -----
     def combine_months(filters: dict | None, tab_key: str) -> dict:
         from utils.dataframe import combine_month_frames
-        months = list((filters or {}).get("months") or ["March"])
+        months = list((filters or {}).get("months") or ["april"])
         if not monthly_datasets:
             return {**(data_dict if tab_key == "tab1" else (data_dict_2 if tab_key == "tab2" else (data_dict_3 or {})))}
         return combine_month_frames(monthly_datasets, months, tab_key)
@@ -266,7 +267,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         "kpi_group": "All",  # All | Performance | Quality
         "kpi_single": None,  # specific KPI column name
         # Month selection (labels in monthly_datasets)
-        "months": ["March"],
+        "months": ["april"],
         # Compare months (do not pool for insights generation)
         "compare_months": False,
     }
@@ -301,7 +302,12 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 id="main-panel-group",
                 direction="horizontal",
                 autoSaveId="vrdb-split",  # persist widths
-                style={"height": "100%", "minHeight": 0},
+                style={
+                    "height": "100%",
+                    "minHeight": 0,
+                    "width": "100%",
+                    "maxWidth": "100%",
+                },
                 children=[
                     # Main Content Panel
                     Panel(
@@ -400,10 +406,10 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                                                     id="month-filter",
                                                     placeholder="Select Month(s)",
                                                     options=[
-                                                        {"label": "March", "value": "March"},
+                                                        {"label": "april", "value": "april"},
                                                         {"label": "May", "value": "May"},
                                                     ],
-                                                    value=["March"],
+                                                    value=["april"],
                                                     multi=True,
                                                 ),
                                                 style={"flex": "1", "margin": "0 10px"},
@@ -450,11 +456,11 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                                                 value="tab3",
                                                 children=[tab3_layout()],
                                             ),
-                                            dcc.Tab(
-                                                label="Month Comparison",
-                                                value="tab4",
-                                                children=[compare_layout()],
-                                            ),
+                                            # dcc.Tab(
+                                            #     label="Month Comparison",
+                                            #     value="tab4",
+                                            #     children=[compare_layout()],
+                                            # ),
                                         ],
                                         style={"marginTop": "10px"},
                                     ),
@@ -462,7 +468,12 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                                 style={"padding": "20px"},
                             ),
                         ],
-                        style={"height": "100%", "minHeight": 0, "overflowY": "auto"},
+                        style={
+                            "height": "100%",
+                            "minHeight": 0,
+                            "minWidth": 0,
+                            "overflowY": "auto",
+                        },
                     ),
                     PanelResizeHandle(
                         id="sidebar-resize-handle",
@@ -830,7 +841,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         except Exception:
             t1_q1_f = t1_q4_f = t1_q5_f = pd.DataFrame()
         try:
-            _t1_q1_unused, t1_q2_u, _t1_q3_u, t1_q4_u, _t1_q5_unused = t1_get_filtered_frames(tab1_cur, {"months": list((filters or {}).get("months") or ["March"])})
+            _t1_q1_unused, t1_q2_u, _t1_q3_u, t1_q4_u, _t1_q5_unused = t1_get_filtered_frames(tab1_cur, {"months": list((filters or {}).get("months") or ["april"]) })
         except Exception:
             t1_q2_u = t1_q4_u = pd.DataFrame()
         try:
@@ -841,7 +852,8 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         try:
             tab3_cur = combine_months(filters, "tab3")
             t3_q1_chart, t3_q2_chart, _t3_q3_unused, _t3_q4_unused = t3_get_filtered_frames(
-                tab3_cur or {}, merged_t3
+                tab3_cur or {},
+                merged_t3
             )
         except Exception:
             t3_q1_chart = t3_q2_chart = pd.DataFrame()
@@ -1111,7 +1123,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                             item.setdefault("group_stats", {})
                             for k, v in ctx_grp.items():
                                 # Do not overwrite if the key already exists unless it's empty
-                                if k not in item["group_stats"] or not item["group_stats"][k]:
+                                if k not in item["group_stats"] or not item["group_stats"].get(k):
                                     item["group_stats"][k] = v
 
                 # For Tab3 small table, attach large dataset stats as additional context
@@ -1128,7 +1140,6 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
             except Exception:
                 pass
 
-            # Logging removed per request
             # Attach generic chart-level metadata if provided by the selector step
             try:
                 if isinstance(meta_all, dict) and isinstance(
@@ -1235,7 +1246,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
             # Determine if month comparison is active for this request
             try:
                 sel_months = list((filters or {}).get("months") or [])
-                compare_on = len(sel_months) > 1 or bool((filters or {}).get("compare_months"))
+                compare_on = len(sel_months) > 1 and bool((filters or {}).get("compare_months"))
             except Exception:
                 sel_months, compare_on = [], False
 
@@ -1465,14 +1476,15 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         except Exception:
             pass
 
-        # If multiple months are selected, direct LLM to produce explicit month-over-month comparisons
+        # Only add MoM comparison guidance when the Compare toggle is ON
         try:
             sel_months = list((filters or {}).get("months") or [])
-            if len(sel_months) > 1:
+            compare_toggle = bool((filters or {}).get("compare_months"))
+            if compare_toggle and len(sel_months) > 1:
                 months_text = ", ".join(map(str, sel_months))
                 focus_hint += (
                     f"Multiple months selected ({months_text}). When the dataset contains a 'Month' column, "
-                    f"you MUST compare months explicitly: quantify deltas (May−March, etc.), identify categories/regions/types with the biggest "
+                    f"you MUST compare months explicitly: quantify deltas (May−april, etc.), identify categories/regions/types with the biggest "
                     f"improvements or declines, and state exact values with signs and percentages. Prioritize MoM changes in Observations.\n"
                 )
                 # Add computed facts for q2: Category A share by month when available
@@ -1518,7 +1530,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         compare_active = False
         try:
             _sel_m = list((filters or {}).get("months") or [])
-            compare_active = len(_sel_m) > 1 or bool((filters or {}).get("compare_months"))
+            compare_active = bool((filters or {}).get("compare_months"))
         except Exception:
             compare_active = False
 
@@ -1725,7 +1737,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         use_chunking = False
         for ch in charts_payload:
             gid = ch.get("graph_id")
-            # Support month-specific graph IDs (e.g., "q1-month-March", "t3-graph-1-month-May")
+            # Support month-specific graph IDs (e.g., "q1-month-april", "t3-graph-1-month-May")
             base_gid = gid
             month_label = None
             try:
@@ -1988,7 +2000,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 [],
                 [],
                 [],
-                df.get("months", ["March"]),
+                df.get("months", ["april"]),
             )
 
         if trig_id in ("outlet-category-filter", "region-filter", "outlet-type-filter"):
@@ -2002,14 +2014,14 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 new_filters["outlet_categories"],
                 new_filters["regions"],
                 new_filters["outlet_types"],
-                new_filters.get("months", ["March"]),
+                new_filters.get("months", ["april"]),
             )
 
         if trig_id == "month-filter":
             new_filters = current_filters.copy()
             new_filters["months"] = list(months_value or [])
             if not new_filters["months"]:
-                new_filters["months"] = ["March"]
+                new_filters["months"] = ["april"]
             # If fewer than 2 months are selected, force compare off
             if len(new_filters["months"]) <= 1:
                 new_filters["compare_months"] = False
@@ -2033,13 +2045,13 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 new_filters.get("outlet_categories", []),
                 new_filters.get("regions", []),
                 new_filters.get("outlet_types", []),
-                new_filters.get("months", ["March"]),
+                new_filters.get("months", ["april"]),
             )
 
         if trig_id == "t2-graph-dynamic" and trig.get("value"):
             # Update global filters based on clicked Tab 2 point, with toggle behavior
             try:
-                point = trig["value"]["points"][0]
+                point = trig["value"].get("points", [{}])[0]
             except Exception:
                 point = {}
             cd = point.get("customdata") or []
@@ -2077,7 +2089,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     nf.get("outlet_categories", []),
                     nf.get("regions", []),
                     nf.get("outlet_types", []),
-                    nf.get("months", ["March"]),
+                    nf.get("months", ["april"]),
                 )
 
             # Otherwise, apply filters and store active key
@@ -2095,12 +2107,12 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 nf.get("outlet_categories", []),
                 nf.get("regions", []),
                 nf.get("outlet_types", []),
-                nf.get("months", ["March"]),
+                nf.get("months", ["april"]),
             )
 
         # Tab 3 -> Global filters: diverging bar click toggles outlet_category in global filters
         if trig_id == "t3-graph-1" and trig.get("value"):
-            point = trig["value"]["points"][0]
+            point = trig["value"].get("points", [{}])[0]
             try:
                 cat = (point.get("customdata") or [None])[0]
             except Exception:
@@ -2112,7 +2124,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     current_filters.get("outlet_categories", []),
                     current_filters.get("regions", []),
                     current_filters.get("outlet_types", []),
-                    current_filters.get("months", ["March"]),
+                    current_filters.get("months", ["april"]),
                 )
             key = f"t3g1|category={cat}"
             # Toggle behavior: clicking same category clears only the category filter
@@ -2125,7 +2137,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     nf.get("outlet_categories", []),
                     nf.get("regions", []),
                     nf.get("outlet_types", []),
-                    nf.get("months", ["March"]),
+                    nf.get("months", ["april"]),
                 )
             # Set selected category in global filters
             nf = dict(current_filters or {})
@@ -2136,13 +2148,13 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 nf.get("outlet_categories", []),
                 nf.get("regions", []),
                 nf.get("outlet_types", []),
-                nf.get("months", ["March"]),
+                nf.get("months", ["april"]),
                 (["compare"] if nf.get("compare_months") else []),
             )
 
         # Special toggle behavior for Tab 1 q2: clear only its filters when clicking same segment
         if trig_id == "graph-q2" and trig.get("value"):
-            point = trig["value"]["points"][0]
+            point = trig["value"].get("points", [{}])[0]
             key = make_key(trig_id, point)
             try:
                 reg = point.get("customdata", [None, None])[0]
@@ -2162,7 +2174,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     nf.get("outlet_categories", []),
                     nf.get("regions", []),
                     nf.get("outlet_types", []),
-                    nf.get("months", ["March"]),
+                    nf.get("months", ["april"]),
                 )
 
             # Apply only the relevant filters (region/category), preserve others
@@ -2177,11 +2189,11 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 nf.get("outlet_categories", []),
                 nf.get("regions", []),
                 nf.get("outlet_types", []),
-                nf.get("months", ["March"]),
+                nf.get("months", ["april"]),
             )
 
         if trig_id.startswith("graph-") and trig.get("value"):
-            point = trig["value"]["points"][0]
+            point = trig["value"].get("points", [{}])[0]
             key = make_key(trig_id, point)
 
             if active_selection == key:
@@ -2192,7 +2204,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     [],
                     [],
                     [],
-                    df.get("months", ["March"]),
+                    df.get("months", ["april"]),
                 )
 
             new_filters = default_filters.copy()
@@ -2233,7 +2245,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 new_filters.get("outlet_categories", []),
                 new_filters.get("regions", []),
                 new_filters.get("outlet_types", []),
-                new_filters.get("months", ["March"]),
+                new_filters.get("months", ["april"]),
             )
 
         return (
@@ -2242,7 +2254,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
             current_filters.get("outlet_categories", []),
             current_filters.get("regions", []),
             current_filters.get("outlet_types", []),
-            current_filters.get("months", ["March"]),
+            current_filters.get("months", ["april"]),
         )
 
     # ----- Plot updates (stable colors via color_discrete_map) -----
@@ -2256,7 +2268,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         # Helper: combine month datasets based on selection
         def _combine_months(tab_key: str):
             from utils.dataframe import combine_month_frames
-            months = list((filters or {}).get("months") or ["March"])
+            months = list((filters or {}).get("months") or ["april"])
             return combine_month_frames(monthly_datasets or {}, months, tab_key)
 
         tab1_cur = _combine_months("tab1") if monthly_datasets else tab1
@@ -2272,7 +2284,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
             GRAPH_LABELS,
         )
         # Build unfiltered figure for q2 (percentage chart should ignore filters)
-        unf_filters = {"months": list((filters or {}).get("months") or ["March"]) }
+        unf_filters = {"months": list((filters or {}).get("months") or ["april"]) }
         figs_unfiltered = build_tab1_figures(
             tab1_cur,
             unf_filters,
@@ -2434,9 +2446,9 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         # Tab 1 mapping (ensure datasets match what's drawn)
         if triggered.startswith("btn-select-q"):
             # Build both full (unfiltered) and chart (current-filtered) datasets
-            tab1_full = combine_months({"months": list((filters or {}).get("months") or ["March"])}, "tab1")
+            tab1_full = combine_months({"months": list((filters or {}).get("months") or ["april"])}, "tab1")
             df_q1_full, df_q2_full, df_q3_full, df_q4_full, df_q5_full = t1_get_filtered_frames(
-                tab1_full, {"months": list((filters or {}).get("months") or ["March"]) }
+                tab1_full, {"months": list((filters or {}).get("months") or ["april"]) }
             )
             tab1_chart = combine_months(filters, "tab1")
             df_q1_chart, df_q2_chart, df_q3_chart, df_q4_chart, df_q5_chart = t1_get_filtered_frames(
@@ -2476,7 +2488,9 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     c = c.rename(columns={cat_col: "category"})
                     # order A-D when present
                     c["category"] = _pd.Categorical(
-                        c["category"], categories=["A", "B", "C", "D"], ordered=True
+                        c["category"],
+                        categories=["A", "B", "C", "D"],
+                        ordered=True,
                     )
                     c = c.sort_values("category")
                 except Exception:
@@ -2540,8 +2554,8 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     pass
         # Tab 2 dynamic (store UNFILTERED datasets for LLM)
         elif triggered == "btn-select-t2-dyn":
-            tab2_full = combine_months({"months": list((filters or {}).get("months") or ["March"])}, "tab2")
-            ret_full = t2_get_filtered_frames(tab2_full, {"months": list((filters or {}).get("months") or ["March"])})
+            tab2_full = combine_months({"months": list((filters or {}).get("months") or ["april"])}, "tab2")
+            ret_full = t2_get_filtered_frames(tab2_full, {"months": list((filters or {}).get("months") or ["april"])})
             tab2_chart = combine_months(filters, "tab2")
             ret_chart = t2_get_filtered_frames(tab2_chart, (filters or {}))
             df1_full = ret_full[0] if isinstance(ret_full, tuple) else ret_full
@@ -2556,7 +2570,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
 
                     d = (
                         df1_chart
-                        if isinstance(df1_chart, _pd.DataFrame)
+                        if isinstance(df1_chart, pd.DataFrame)
                         else _pd.DataFrame()
                     )
                     r = None
@@ -2577,9 +2591,10 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         # Tab 3 mapping (store UNFILTERED datasets for LLM)
         else:
             # Build both full (unfiltered) and chart (global+local filtered) datasets
-            tab3_full = combine_months({"months": list((filters or {}).get("months") or ["March"])}, "tab3")
+            tab3_full = combine_months({"months": list((filters or {}).get("months") or ["april"])}, "tab3")
             q1_t3_full, q2_t3_full, q3_t3_full, q4_t3_full = t3_get_filtered_frames(
-                tab3_full or {}, {"months": list((filters or {}).get("months") or ["March"]) }
+                tab3_full or {},
+                {"months": list((filters or {}).get("months") or ["april"]) }
             )
 
             # Merge global and local filters for chart scope
@@ -2606,7 +2621,8 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 "outlet_types": list(gf.get("outlet_types", [])),
             }
             q1_t3_chart, q2_t3_chart, q3_t3_chart, q4_t3_chart = t3_get_filtered_frames(
-                combine_months(filters, "tab3") or {}, merged
+                combine_months(filters, "tab3") or {},
+                merged
             )
             id_map3 = {
                 "btn-select-t3-1": ("t3-graph-1", q1_t3_full, q1_t3_chart),
@@ -2637,9 +2653,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     import pandas as _pd
 
                     if not isinstance(dframe, _pd.DataFrame) or dframe.empty:
-                        return _pd.DataFrame(
-                            columns=["outlet_category", "kpi", "gap_value"]
-                        )
+                        return _pd.DataFrame(columns=["outlet_category", "kpi", "gap_value"])
                     rows = []
                     cats = ["B", "C", "D"]
                     for col, disp in KPI_DISPLAY:
@@ -2698,7 +2712,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
             )
             # q1..q6 (6) + t2-dyn (1) + t3-1 (1) + t3-3 (1) = 9
             pressed = ["false"] * 9
-            return selected_graphs, *pressed, selected_data, info
+            return [], *pressed, selected_data, info
 
         # chip style
         def chip(text):
@@ -2892,7 +2906,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
 
             # Build unfiltered q2 dataset (rgn, category, count, pct) for view
             _q1_unf, df_q2_unf, _d3, _d4, _d5 = t1_get_filtered_frames(
-                combine_months(filters, "tab1"), {"months": list((filters or {}).get("months") or ["March"]) }
+                combine_months(filters, "tab1"), {"months": list((filters or {}).get("months") or ["april"]) }
             )
 
             id_map = {
@@ -3218,8 +3232,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 title=GRAPH_LABELS.get(
                     "t2-graph-dyn", "Explore Parameter Relationships"
                 )
-                + f"{title_suffix} (r={r:.2f}, n={len(x2)})"
-            )
+                + f"{title_suffix} (r={r:.2f}, n={len(x2)})")
         except Exception:
             pass
 
@@ -3370,15 +3383,16 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
     def update_compare(filters, kpi_col):
         try:
             months = monthly_datasets or {}
-            # Expect keys 'March' and 'May' with tab3-like dicts (need q1)
-            # To ensure we have detailed frames, prefer tab3 datasets; fallback to tab2.
-            month_payload = {}
-            for label in ["March", "May"]:
+            month_payload: Dict[str, Dict[str, pd.DataFrame]] = {}
+            selected_months = list((filters or {}).get("months") or months.keys())
+            for label in selected_months:
                 src = months.get(label) or {}
-                d3 = src.get("tab3") or {}
-                if not isinstance(d3, dict) or not d3:
-                    d3 = {}
-                month_payload[label] = d3
+                d3 = src.get("tab3") if isinstance(src, dict) else {}
+                month_payload[label] = d3 if isinstance(d3, dict) else {}
+            if not month_payload:
+                for label, src in months.items():
+                    d3 = src.get("tab3") if isinstance(src, dict) else {}
+                    month_payload[label] = d3 if isinstance(d3, dict) else {}
             fig_bar, fig_tbl = build_compare_figures(month_payload, filters or {}, kpi_col)
             return fig_bar, fig_tbl
         except Exception:
@@ -3396,16 +3410,16 @@ if __name__ == "__main__":
             data_dict_tab3 = {}
             monthly = {}
         else:
-            # Load March as default for existing tabs
-            data_dict = get_tab1_results("kpi_march")
-            data_dict_tab2 = get_tab2_results("kpi_march")
-            data_dict_tab3 = get_tab3_results("kpi_march")
+            # Load april as default for existing tabs
+            data_dict = get_tab1_results("kpi_april")
+            data_dict_tab2 = get_tab2_results("kpi_april")
+            data_dict_tab3 = get_tab3_results("kpi_april")
             # Load May for comparison
             data_may_t1 = get_tab1_results("kpi_may")
             data_may_t2 = get_tab2_results("kpi_may")
             data_may_t3 = get_tab3_results("kpi_may")
             monthly = {
-                "March": {"tab1": data_dict, "tab2": data_dict_tab2, "tab3": data_dict_tab3},
+                "april": {"tab1": data_dict, "tab2": data_dict_tab2, "tab3": data_dict_tab3},
                 "May": {"tab1": data_may_t1, "tab2": data_may_t2, "tab3": data_may_t3},
             }
         app = create_dashboard(data_dict, data_dict_tab2, data_dict_tab3, monthly)

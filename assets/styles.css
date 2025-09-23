@@ -84,3 +84,31 @@ button[id^="btn-select"]:active, button[id^="btn-view"]:active {
 .switch-toggle input[type="checkbox"]:checked { background: #2563EB; border-color: #1D4ED8; }
 .switch-toggle input[type="checkbox"]:checked::after { transform: translateX(18px); }
 .switch-toggle span { display: none; }
+
+/* Dashboard cards wrap graphs/tables and keep them within the viewport */
+.dashboard-card {
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 16px 20px;
+  box-shadow: 0 12px 24px -12px rgba(15, 23, 42, 0.25);
+  width: 100%;
+  box-sizing: border-box;
+  margin: 12px 0;
+  overflow: hidden;
+}
+
+/* Ensure Plotly graphs respect the card width */
+.dashboard-card .dash-graph,
+.dashboard-card .js-plotly-plot,
+.dashboard-card .plotly {
+  width: 100% !important;
+}
+
+.dashboard-card .dash-graph {
+  min-width: 0;
+}
+
+/* Tables rendered inside the card inherit spacing */
+.dashboard-card .dash-table-container {
+  margin-top: 12px;
+}

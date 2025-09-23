@@ -8,18 +8,13 @@ def get_layout():
     - q4 (Top Outlets) moved to the very bottom
     - A drilldown panel shows after clicking a region on q1/q3
     """
-    full = {
-        "width": "98%",
-        "display": "inline-block",
-        "verticalAlign": "top",
-        "marginTop": "10px",
-    }
     return html.Div(
         [
             # Drilldown panel hidden (no separate graph per spec)
             html.Div(
                 id="tab1-drilldown",
-                style={"width": "98%", "marginTop": "10px", "display": "none"},
+                className="dashboard-card",
+                style={"display": "none"},
             ),
             # q1 removed per spec (Average Total Score by Region)
             # q2 — big (Stacked bar)
@@ -28,35 +23,31 @@ def get_layout():
                     html.Div(
                         [
                             html.Div(
+                                "Outlet Category Distribution (% by Region)",
+                                className="graph-title",
+                            ),
+                            html.Div(
                                 [
-                                    html.Div(
-                                        "Outlet Category Distribution (% by Region)",
-                                        className="graph-title",
+                                    html.Button(
+                                        "Select this graph",
+                                        id="btn-select-q2",
+                                        n_clicks=0,
                                     ),
-                                    html.Div(
-                                        [
-                                            html.Button(
-                                                "Select this graph",
-                                                id="btn-select-q2",
-                                                n_clicks=0,
-                                            ),
-                                            html.Button(
-                                                "View data",
-                                                id="btn-view-q2",
-                                                n_clicks=0,
-                                            ),
-                                        ],
-                                        className="graph-actions-row",
+                                    html.Button(
+                                        "View data",
+                                        id="btn-view-q2",
+                                        n_clicks=0,
                                     ),
                                 ],
-                                className="graph-header",
+                                className="graph-actions-row",
                             ),
-                            dcc.Graph(id="graph-q2"),
-                        ]
+                        ],
+                        className="graph-header",
                     ),
+                    dcc.Graph(id="graph-q2"),
                     html.Div(id="table-q2"),
                 ],
-                style=full,
+                className="dashboard-card",
             ),
             # q6 — Outlet Count by Category (A/B/C/D)
             html.Div(
@@ -64,35 +55,31 @@ def get_layout():
                     html.Div(
                         [
                             html.Div(
+                                "Number of Outlets by Category",
+                                className="graph-title",
+                            ),
+                            html.Div(
                                 [
-                                    html.Div(
-                                        "Number of Outlets by Category",
-                                        className="graph-title",
+                                    html.Button(
+                                        "Select this graph",
+                                        id="btn-select-q6",
+                                        n_clicks=0,
                                     ),
-                                    html.Div(
-                                        [
-                                            html.Button(
-                                                "Select this graph",
-                                                id="btn-select-q6",
-                                                n_clicks=0,
-                                            ),
-                                            html.Button(
-                                                "View data",
-                                                id="btn-view-q6",
-                                                n_clicks=0,
-                                            ),
-                                        ],
-                                        className="graph-actions-row",
+                                    html.Button(
+                                        "View data",
+                                        id="btn-view-q6",
+                                        n_clicks=0,
                                     ),
                                 ],
-                                className="graph-header",
+                                className="graph-actions-row",
                             ),
-                            dcc.Graph(id="graph-q6"),
-                        ]
+                        ],
+                        className="graph-header",
                     ),
+                    dcc.Graph(id="graph-q6"),
                     html.Div(id="table-q6"),
                 ],
-                style=full,
+                className="dashboard-card",
             ),
             # q3 — big
             html.Div(
@@ -100,35 +87,31 @@ def get_layout():
                     html.Div(
                         [
                             html.Div(
+                                "Performance vs. Quality by Region",
+                                className="graph-title",
+                            ),
+                            html.Div(
                                 [
-                                    html.Div(
-                                        "Performance vs. Quality by Region",
-                                        className="graph-title",
+                                    html.Button(
+                                        "Select this graph",
+                                        id="btn-select-q3",
+                                        n_clicks=0,
                                     ),
-                                    html.Div(
-                                        [
-                                            html.Button(
-                                                "Select this graph",
-                                                id="btn-select-q3",
-                                                n_clicks=0,
-                                            ),
-                                            html.Button(
-                                                "View data",
-                                                id="btn-view-q3",
-                                                n_clicks=0,
-                                            ),
-                                        ],
-                                        className="graph-actions-row",
+                                    html.Button(
+                                        "View data",
+                                        id="btn-view-q3",
+                                        n_clicks=0,
                                     ),
                                 ],
-                                className="graph-header",
+                                className="graph-actions-row",
                             ),
-                            dcc.Graph(id="graph-q3"),
-                        ]
+                        ],
+                        className="graph-header",
                     ),
+                    dcc.Graph(id="graph-q3"),
                     html.Div(id="table-q3"),
                 ],
-                style=full,
+                className="dashboard-card",
             ),
             # Hidden extras to keep callbacks stable (not visible)
             html.Div(

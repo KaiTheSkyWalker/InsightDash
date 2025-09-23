@@ -12,9 +12,9 @@ from utils.df_summary import category_mix_by_month
 
 def build_sample():
     # Simulate outlet-level rows for two months with categories
-    march = pd.DataFrame(
+    april = pd.DataFrame(
         {
-            "Month": ["March"] * 10,
+            "Month": ["april"] * 10,
             "outlet_category": ["A", "A", "A", "A", "A", "B", "B", "C", "D", "D"],
         }
     )
@@ -38,14 +38,14 @@ def build_sample():
             ],
         }
     )
-    return pd.concat([march, may], ignore_index=True)
+    return pd.concat([april, may], ignore_index=True)
 
 
 def main():
     df = build_sample()
     mix = category_mix_by_month(df)
-    a_march = (
-        mix[(mix["Month"] == "March") & (mix["category"] == "A")]["pct"].iloc[0]
+    a_april = (
+        mix[(mix["Month"] == "april") & (mix["category"] == "A")]["pct"].iloc[0]
         if not mix.empty
         else None
     )
@@ -54,11 +54,11 @@ def main():
         if not mix.empty
         else None
     )
-    print("A% March:", round(a_march, 2))
+    print("A% april:", round(a_april, 2))
     print("A% May:", round(a_may, 2))
-    assert a_march is not None and a_may is not None
-    assert a_march > a_may, "Expected March A% > May A%"
-    print("OK: March has higher A% than May")
+    assert a_april is not None and a_may is not None
+    assert a_april > a_may, "Expected april A% > May A%"
+    print("OK: april has higher A% than May")
 
 
 if __name__ == "__main__":
