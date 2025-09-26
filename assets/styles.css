@@ -55,34 +55,52 @@ button[id^="btn-select"]:active, button[id^="btn-view"]:active {
 .chip { background: #e8f0fe; border: 1px solid #d0e2ff; color: #1e3a8a; }
 
 /* Switch-style toggle for the compare months checklist */
-.switch-toggle label { display: inline-flex; align-items: center; gap: 8px; }
+.switch-toggle label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .switch-toggle input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
-  width: 42px;
-  height: 24px;
-  background: #d1d5db;
+  width: 52px;
+  height: 28px;
+  background: rgba(148, 163, 184, 0.4);
   border-radius: 9999px;
   position: relative;
   outline: none;
   cursor: pointer;
-  transition: background-color 160ms ease;
-  border: 1px solid #c7ced6;
+  transition: background 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+  border: 1px solid rgba(148, 163, 184, 0.45);
 }
+
 .switch-toggle input[type="checkbox"]::after {
   content: "";
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 20px;
-  height: 20px;
+  top: 3px;
+  left: 4px;
+  width: 22px;
+  height: 22px;
   background: #ffffff;
   border-radius: 9999px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
-  transition: transform 160ms ease;
+  box-shadow: 0 4px 6px rgba(15, 23, 42, 0.15);
+  transition: transform 180ms ease;
 }
-.switch-toggle input[type="checkbox"]:checked { background: #2563EB; border-color: #1D4ED8; }
-.switch-toggle input[type="checkbox"]:checked::after { transform: translateX(18px); }
+
+.switch-toggle input[type="checkbox"]:checked {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  border-color: rgba(59, 130, 246, 0.6);
+}
+
+.switch-toggle input[type="checkbox"]:checked::after {
+  transform: translateX(22px);
+}
+
+.switch-toggle input[type="checkbox"]:focus-visible {
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.25);
+}
+
 .switch-toggle span { display: none; }
 
 /* Dashboard cards wrap graphs/tables and keep them within the viewport */

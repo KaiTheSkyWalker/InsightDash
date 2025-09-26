@@ -79,6 +79,108 @@ external_stylesheets = [
 ]
 
 
+RESET_BUTTON_STYLE = {
+    "height": "38px",
+    "marginLeft": "10px",
+    "padding": "0 16px",
+    "borderRadius": "10px",
+    "border": "1px solid rgba(148, 163, 184, 0.45)",
+    "backgroundColor": "#ffffff",
+    "color": "#0f172a",
+    "fontWeight": 600,
+    "fontSize": "13px",
+    "display": "inline-flex",
+    "alignItems": "center",
+    "gap": "10px",
+    "boxShadow": "0 1px 3px rgba(15, 23, 42, 0.08)",
+    "cursor": "pointer",
+    "transition": "transform 0.18s ease, box-shadow 0.18s ease, opacity 0.2s ease",
+}
+
+CLEAR_SELECTION_STYLE = {
+    "width": "100%",
+    "padding": "12px 16px",
+    "marginTop": "10px",
+    "backgroundColor": "#ffffff",
+    "color": "#0f172a",
+    "border": "1px solid rgba(148, 163, 184, 0.45)",
+    "borderRadius": "14px",
+    "fontWeight": 600,
+    "fontSize": "13px",
+    "display": "flex",
+    "alignItems": "center",
+    "justifyContent": "center",
+    "gap": "10px",
+    "boxShadow": "0 1px 4px rgba(15, 23, 42, 0.08)",
+    "cursor": "pointer",
+    "transition": "transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease",
+}
+
+GENERATE_BUTTON_STYLE = {
+    "width": "100%",
+    "padding": "14px 18px",
+    "marginTop": "16px",
+    "background": "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+    "color": "#ffffff",
+    "border": "none",
+    "borderRadius": "14px",
+    "fontWeight": 700,
+    "fontSize": "14px",
+    "letterSpacing": "0.01em",
+    "display": "flex",
+    "alignItems": "center",
+    "justifyContent": "center",
+    "gap": "10px",
+    "boxShadow": "0 18px 30px -15px rgba(37, 99, 235, 0.75)",
+    "cursor": "pointer",
+    "transition": "transform 0.22s ease, box-shadow 0.22s ease, opacity 0.2s ease",
+}
+
+CLEAR_INSIGHTS_STYLE = {
+    "width": "100%",
+    "padding": "12px 16px",
+    "marginTop": "10px",
+    "backgroundColor": "rgba(37, 99, 235, 0.12)",
+    "color": "#1d4ed8",
+    "border": "none",
+    "borderRadius": "14px",
+    "fontWeight": 600,
+    "fontSize": "13px",
+    "display": "flex",
+    "alignItems": "center",
+    "justifyContent": "center",
+    "gap": "10px",
+    "boxShadow": "0 1px 4px rgba(30, 64, 175, 0.18)",
+    "cursor": "pointer",
+    "transition": "transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease",
+}
+
+DEFAULT_DROPDOWN_STYLE = {"cursor": "pointer"}
+DEFAULT_CHECKLIST_STYLE = {"cursor": "pointer"}
+
+
+def _dropdown_cursor_style(disabled: bool) -> dict:
+    style = DEFAULT_DROPDOWN_STYLE.copy()
+    style["cursor"] = "not-allowed" if disabled else "pointer"
+    return style
+
+
+def _checklist_cursor_style(disabled: bool) -> dict:
+    style = DEFAULT_CHECKLIST_STYLE.copy()
+    style["cursor"] = "not-allowed" if disabled else "pointer"
+    style["opacity"] = 0.55 if disabled else 1
+    return style
+
+
+def _button_cursor_style(base_style: dict, disabled: bool) -> dict:
+    style = base_style.copy()
+    style["cursor"] = "not-allowed" if disabled else "pointer"
+    if disabled:
+        style.setdefault("opacity", 0.6)
+    else:
+        style.pop("opacity", None)
+    return style
+
 def _ensure_tab1_defaults(data_dict: dict | None) -> dict:
     """Ensure Tab 1 dict has q1..q5 DataFrames with required columns.
 
@@ -295,6 +397,48 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         # 't3-graph-5': '—',
     }
 
+    def build_dropdown_options(values):
+        """Map iterable of values to Dash dropdown option dicts."""
+        return [
+            option
+            if isinstance(option, dict)
+            else {"label": option, "value": option}
+            for option in values
+        ]
+
+    def make_filter_dropdown(
+        component_id,
+        placeholder,
+        values,
+        *,
+        multi=True,
+        value=None,
+    ):
+        return html.Div(
+            dcc.Dropdown(
+                id=component_id,
+                placeholder=placeholder,
+                options=build_dropdown_options(values),
+                multi=multi,
+                value=value,
+                style=DEFAULT_DROPDOWN_STYLE.copy(),
+            ),
+            style={"flex": "1", "margin": "0 10px"},
+        )
+
+    month_values = (
+        sorted((monthly_datasets or {}).keys()) if monthly_datasets else ["april", "May"]
+    )
+    if not month_values:
+        month_values = default_filters["months"]
+    month_set = set(month_values)
+    default_month_selection = [
+        month for month in default_filters["months"] if month in month_set
+    ]
+    if not default_month_selection and month_values:
+        default_month_selection = [month_values[0]]
+    default_filters["months"] = default_month_selection
+
     # ----- Layout -----
     app.layout = html.Div(
         [
@@ -351,6 +495,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                                     ),
                                     dcc.Store(id="selected-graphs", data=[]),
                                     dcc.Store(id="selected-data", data={}),
+                                    dcc.Store(id="insights-active", data=False),
                                     # Tab 3 dedicated filter store
                                     dcc.Store(
                                         id="tab3-filter-store",
@@ -365,64 +510,34 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                                     html.Div(
                                         [
                                             # Row 1: Core categorical slicers (search + sliders removed)
-                                            html.Div(
-                                                dcc.Dropdown(
-                                                    id="outlet-category-filter",
-                                                    placeholder="Select Category (A/B/C/D)",
-                                                    options=[
-                                                        {"label": cat, "value": cat}
-                                                        for cat in all_outlet_categories
-                                                    ],
-                                                    multi=True,
-                                                ),
-                                                style={"flex": "1", "margin": "0 10px"},
+                                            make_filter_dropdown(
+                                                "outlet-category-filter",
+                                                "Select Category (A/B/C/D)",
+                                                all_outlet_categories,
                                             ),
-                                            html.Div(
-                                                dcc.Dropdown(
-                                                    id="region-filter",
-                                                    placeholder="Select Region(s)",
-                                                    options=[
-                                                        {"label": reg, "value": reg}
-                                                        for reg in all_regions
-                                                    ],
-                                                    multi=True,
-                                                ),
-                                                style={"flex": "1", "margin": "0 10px"},
+                                            make_filter_dropdown(
+                                                "region-filter",
+                                                "Select Region(s)",
+                                                all_regions,
                                             ),
-                                            html.Div(
-                                                dcc.Dropdown(
-                                                    id="outlet-type-filter",
-                                                    placeholder="Outlet Type",
-                                                    options=[
-                                                        {"label": t, "value": t}
-                                                        for t in all_outlet_types
-                                                    ],
-                                                    multi=True,
-                                                ),
-                                                style={"flex": "1", "margin": "0 10px"},
+                                            make_filter_dropdown(
+                                                "outlet-type-filter",
+                                                "Outlet Type",
+                                                all_outlet_types,
                                             ),
-                                            html.Div(
-                                                dcc.Dropdown(
-                                                    id="month-filter",
-                                                    placeholder="Select Month(s)",
-                                                    options=[
-                                                        {"label": "april", "value": "april"},
-                                                        {"label": "May", "value": "May"},
-                                                    ],
-                                                    value=["april"],
-                                                    multi=True,
-                                                ),
-                                                style={"flex": "1", "margin": "0 10px"},
+                                            make_filter_dropdown(
+                                                "month-filter",
+                                                "Select Month(s)",
+                                                month_values,
+                                                value=default_month_selection,
                                             ),
                                             # Removed top-row 'Compare Months' toggle (moved to sidebar)
                                             html.Button(
                                                 "Reset All Filters",
                                                 id="reset-button",
                                                 n_clicks=0,
-                                                style={
-                                                    "height": "36px",
-                                                    "marginLeft": "10px",
-                                                },
+                                                className="topbar-reset-btn",
+                                                style=RESET_BUTTON_STYLE.copy(),
                                             ),
                                         ],
                                         style={
@@ -526,16 +641,8 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                                         "Clear Selection",
                                         id="clear-selection",
                                         n_clicks=0,
-                                        style={
-                                            "width": "100%",
-                                            "padding": "10px",
-                                            "marginTop": "6px",
-                                            "backgroundColor": "#e5e7eb",
-                                            "color": "#111827",
-                                            "border": "1px solid #d1d5db",
-                                            "borderRadius": "8px",
-                                            "cursor": "pointer",
-                                        },
+                                        className="sidebar-action-btn sidebar-action-btn--secondary",
+                                        style=CLEAR_SELECTION_STYLE.copy(),
                                     ),
                                     # LLM data scope removed; always use full data for analysis
                                     # Insight mode selector
@@ -601,38 +708,69 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                                     # Compare Months toggle (sidebar)
                                     html.Div(
                                         [
-                                            html.Label(
-                                                "Compare Months",
-                                                style={
-                                                    "fontWeight": "bold",
-                                                    "fontSize": "14px",
-                                                    "marginTop": "12px",
-                                                },
+                                            html.Div(
+                                                [
+                                                    html.Div(
+                                                        "Compare Months",
+                                                        className="sidebar-toggle-title",
+                                                    ),
+                                                    html.Div(
+                                                        "Highlight month-over-month differences across the selected charts.",
+                                                        className="sidebar-toggle-subtitle",
+                                                    ),
+                                                ],
+                                                className="sidebar-toggle-copy",
                                             ),
                                             dcc.Checklist(
                                                 id="month-compare-toggle-side",
                                                 options=[{"label": "", "value": "compare"}],
                                                 value=[],
-                                                className="switch-toggle",
+                                                className="switch-toggle sidebar-toggle-switch",
                                                 inline=True,
+                                                style=DEFAULT_CHECKLIST_STYLE.copy(),
                                             ),
                                         ],
-                                        style={"marginTop": "4px"},
+                                        className="sidebar-toggle-row",
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Div(
+                                                [
+                                                    html.Div(
+                                                        "Use Filtered Data",
+                                                        className="sidebar-toggle-title",
+                                                    ),
+                                                    html.Div(
+                                                        "Limit LLM insights to the currently filtered view of each chart.",
+                                                        className="sidebar-toggle-subtitle",
+                                                    ),
+                                                ],
+                                                className="sidebar-toggle-copy",
+                                            ),
+                                            dcc.Checklist(
+                                                id="insight-data-scope-toggle",
+                                                options=[{"label": "", "value": "filtered"}],
+                                                value=[],
+                                                className="switch-toggle sidebar-toggle-switch",
+                                                inline=True,
+                                                style=DEFAULT_CHECKLIST_STYLE.copy(),
+                                            ),
+                                        ],
+                                        className="sidebar-toggle-row",
                                     ),
                                     html.Button(
                                         "Generate Insights",
                                         id="generate-button",
                                         n_clicks=0,
-                                        style={
-                                            "width": "100%",
-                                            "padding": "12px",
-                                            "marginTop": "10px",
-                                            "backgroundColor": "#007bff",
-                                            "color": "white",
-                                            "border": "none",
-                                            "borderRadius": "8px",
-                                            "cursor": "pointer",
-                                        },
+                                        className="sidebar-action-btn sidebar-action-btn--primary",
+                                        style=GENERATE_BUTTON_STYLE.copy(),
+                                    ),
+                                    html.Button(
+                                        "Clear Insights",
+                                        id="clear-insights",
+                                        n_clicks=0,
+                                        className="sidebar-action-btn sidebar-action-btn--ghost",
+                                        style=CLEAR_INSIGHTS_STYLE.copy(),
                                     ),
                                     dcc.Loading(
                                         id="generate-loading",
@@ -759,7 +897,9 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
     @app.callback(
         Output("generate-output", "children"),
         Output("llm-debug", "children"),
+        Output("insights-active", "data"),
         Input("generate-button", "n_clicks"),
+        Input("clear-insights", "n_clicks"),
         State("selected-graphs", "data"),
         State("selected-data", "data"),
         State("filter-store", "data"),
@@ -770,10 +910,12 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         State("t2-x-param", "value"),
         State("t2-y-param", "value"),
         State("t2-color-dim", "value"),
+        State("insight-data-scope-toggle", "value"),
         prevent_initial_call=True,
     )
     def generate_report(
-        n_clicks,
+        generate_clicks,
+        clear_clicks,
         selected_graphs,
         selected_data,
         filters,
@@ -783,17 +925,22 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         t2_x_current,
         t2_y_current,
         t2_color_current,
+        insight_scope_toggle,
     ):
-        # Trigger visible loading state
-        if not n_clicks:
-            return "", no_update
+        triggered = ctx.triggered_id
+        if triggered == "clear-insights":
+            return "", "", False
+        if triggered != "generate-button":
+            raise PreventUpdate
         if not selected_graphs:
             return html.Div(
                 [
                     html.H4("No charts selected.", style={"color": "#991B1B"}),
                     html.P("Use “Select this graph” under one or more charts."),
                 ]
-            ), no_update
+            ), no_update, False
+
+        use_filtered_scope = "filtered" in (insight_scope_toggle or [])
 
         def label(gid):
             return GRAPH_LABELS.get(gid, gid)
@@ -805,18 +952,105 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
             # If already in flat format
             if "columns" in meta_obj and "records" in meta_obj:
                 return meta_obj
-            # For q3, prefer 'chart' (drilldown state) so LLM reflects the current view
-            if gid == "q3" and isinstance(meta_obj.get("chart"), dict):
-                return meta_obj["chart"]
-            # Default: prefer full snapshot for stability
-            if isinstance(meta_obj.get("full"), dict):
-                return meta_obj["full"]
-            if isinstance(meta_obj.get("chart"), dict):
-                return meta_obj["chart"]
+            priority_filtered = [
+                "chart",
+                "alt_chart",
+                "gap_chart",
+                "filtered",
+                "full",
+                "alt_full",
+                "gap_full",
+            ]
+            priority_full = [
+                "full",
+                "alt_full",
+                "gap_full",
+                "chart",
+                "alt_chart",
+                "gap_chart",
+                "filtered",
+            ]
+            keys = priority_filtered if use_filtered_scope else priority_full
+            for key in keys:
+                val = meta_obj.get(key)
+                if isinstance(val, dict) and {
+                    "columns",
+                    "records",
+                }.issubset(set(val.keys())):
+                    return val
             return None
+
+        def _meta_to_df(meta_dict: dict | None) -> pd.DataFrame:
+            if not isinstance(meta_dict, dict):
+                return pd.DataFrame()
+            try:
+                cols = meta_dict.get("columns")
+                rows = meta_dict.get("records") or []
+                if cols and isinstance(cols, (list, tuple)):
+                    return pd.DataFrame(rows, columns=cols)
+                return pd.DataFrame(rows)
+            except Exception:
+                try:
+                    return pd.DataFrame(meta_dict.get("records") or [])
+                except Exception:
+                    return pd.DataFrame()
+
+        def _prepare_tab2_filtered_df(
+            df: pd.DataFrame,
+            xcol: str | None,
+            ycol: str | None,
+            color_col: str | None,
+        ) -> pd.DataFrame:
+            """Mirror the on-screen Tab 2 scatter view when filtered scope is selected."""
+            if not isinstance(df, pd.DataFrame) or df.empty:
+                return df
+
+            d = df.copy()
+
+            def _coerce_numeric(dframe: pd.DataFrame, col: str | None):
+                if not col or col not in dframe.columns:
+                    return
+                series = dframe[col]
+                try:
+                    if not pd.api.types.is_numeric_dtype(series):
+                        s2 = (
+                            series.astype(str)
+                            .str.replace("%", "", regex=False)
+                            .str.replace(",", "", regex=False)
+                        )
+                        s2 = s2.str.extract(r"([-+]?\d*\.?\d+)")[0]
+                        dframe[col] = pd.to_numeric(s2, errors="coerce")
+                    else:
+                        dframe[col] = pd.to_numeric(series, errors="coerce")
+                except Exception:
+                    try:
+                        dframe[col] = pd.to_numeric(series, errors="coerce")
+                    except Exception:
+                        pass
+
+            _coerce_numeric(d, xcol)
+            _coerce_numeric(d, ycol)
+
+            subset_cols = [c for c in (xcol, ycol) if c and c in d.columns]
+            if subset_cols:
+                try:
+                    d = d.dropna(subset=subset_cols)
+                except Exception:
+                    pass
+
+            parameter_cols: list[str] = []
+            for col in (xcol, ycol, color_col):
+                if col and col in d.columns and col not in parameter_cols:
+                    parameter_cols.append(col)
+
+            if parameter_cols:
+                d = d[parameter_cols]
+
+            return d
 
         # Prepare live, current chart data for each selected gid
         charts_payload = []
+        analysis_cache: dict[str, pd.DataFrame] = {}
         gf = filters or {}
         lf = tab3_local or {}
         def _combine(a, b):
@@ -860,22 +1094,67 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         # DRY helper: build a month-specific dataframe for any chart gid
         def _month_df_for_gid(base_gid: str, mlabel: str) -> pd.DataFrame:
             try:
+                if not use_filtered_scope:
+                    base_meta = (selected_data or {}).get(base_gid)
+                    candidates = []
+                    if isinstance(base_meta, dict):
+                        if {"columns", "records"}.issubset(base_meta.keys()):
+                            candidates.append(base_meta)
+                        for key in [
+                            "full",
+                            "alt_full",
+                            "gap_full",
+                            "chart",
+                            "alt_chart",
+                            "gap_chart",
+                        ]:
+                            val = base_meta.get(key)
+                            if isinstance(val, dict):
+                                candidates.append(val)
+                    for meta_dict in candidates:
+                        df_meta = _meta_to_df(meta_dict)
+                        if (
+                            isinstance(df_meta, pd.DataFrame)
+                            and not df_meta.empty
+                            and "Month" in df_meta.columns
+                        ):
+                            return df_meta[
+                                df_meta["Month"].astype(str) == str(mlabel)
+                            ].copy()
+                    return pd.DataFrame()
+
+                # Filtered path (current UI context)
                 # Tab 1
                 if base_gid == "q2":
                     from utils.df_summary import category_mix_by_month
-                    detail_df = t1_q4_u if isinstance(t1_q4_u, pd.DataFrame) else t1_q4_f
+
+                    detail_df = (
+                        t1_q4_u if isinstance(t1_q4_u, pd.DataFrame) else t1_q4_f
+                    )
                     mix_all = category_mix_by_month(detail_df)
                     if isinstance(mix_all, pd.DataFrame) and not mix_all.empty:
-                        return mix_all[mix_all["Month"].astype(str) == str(mlabel)].copy()
+                        return mix_all[
+                            mix_all["Month"].astype(str) == str(mlabel)
+                        ].copy()
                     return pd.DataFrame(columns=["Month", "category", "count", "pct"])
                 if base_gid == "q1":
-                    if isinstance(t1_q4_f, pd.DataFrame) and not t1_q4_f.empty and "Month" in t1_q4_f.columns:
-                        return t1_q4_f[t1_q4_f["Month"].astype(str) == str(mlabel)].copy()
+                    if (
+                        isinstance(t1_q4_f, pd.DataFrame)
+                        and not t1_q4_f.empty
+                        and "Month" in t1_q4_f.columns
+                    ):
+                        return t1_q4_f[
+                            t1_q4_f["Month"].astype(str) == str(mlabel)
+                        ].copy()
                     return pd.DataFrame()
                 if base_gid == "q3":
                     regs_sel = list((gf or {}).get("regions") or [])
                     df = t1_q4_f
-                    if isinstance(df, pd.DataFrame) and not df.empty and "Month" in df.columns:
+                    if (
+                        isinstance(df, pd.DataFrame)
+                        and not df.empty
+                        and "Month" in df.columns
+                    ):
                         sub = df[df["Month"].astype(str) == str(mlabel)].copy()
                         if regs_sel and "rgn" in sub.columns:
                             try:
@@ -886,22 +1165,43 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     return pd.DataFrame()
                 if base_gid == "q6":
                     from utils.df_summary import category_mix_by_month
+
                     detail_df = t1_q4_f
                     mix_all = category_mix_by_month(detail_df)
                     if isinstance(mix_all, pd.DataFrame) and not mix_all.empty:
-                        return mix_all[mix_all["Month"].astype(str) == str(mlabel)][["Month", "category", "count"]].copy()
+                        return mix_all[
+                            mix_all["Month"].astype(str) == str(mlabel)
+                        ][["Month", "category", "count"]].copy()
                     return pd.DataFrame(columns=["Month", "category", "count"])
                 # Tab 2
                 if base_gid == "t2-graph-dyn":
-                    if isinstance(t2_df_chart, pd.DataFrame) and not t2_df_chart.empty and "Month" in t2_df_chart.columns:
-                        return t2_df_chart[t2_df_chart["Month"].astype(str) == str(mlabel)].copy()
+                    if (
+                        isinstance(t2_df_chart, pd.DataFrame)
+                        and not t2_df_chart.empty
+                        and "Month" in t2_df_chart.columns
+                    ):
+                        sub = t2_df_chart[
+                            t2_df_chart["Month"].astype(str) == str(mlabel)
+                        ].copy()
+                        color_sel = t2_color_current or "outlet_category"
+                        return _prepare_tab2_filtered_df(
+                            sub,
+                            t2_x_current,
+                            t2_y_current,
+                            color_sel,
+                        )
                     return pd.DataFrame()
                 # Tab 3
                 if base_gid == "t3-graph-1":
                     from app_tabs.tab3.figures import KPI_DISPLAY as _KDISP
                     import pandas as _pd
+
                     base_live = t3_q1_chart
-                    if isinstance(base_live, _pd.DataFrame) and not base_live.empty and "Month" in base_live.columns:
+                    if (
+                        isinstance(base_live, _pd.DataFrame)
+                        and not base_live.empty
+                        and "Month" in base_live.columns
+                    ):
                         bl = base_live[base_live["Month"].astype(str) == str(mlabel)].copy()
                         rows = []
                         cats = ["B", "C", "D"]
@@ -927,10 +1227,18 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                                         }
                                     )
                         return _pd.DataFrame(rows)
-                    return pd.DataFrame(columns=["Month", "outlet_category", "kpi", "gap_value"])
+                    return pd.DataFrame(
+                        columns=["Month", "outlet_category", "kpi", "gap_value"]
+                    )
                 if base_gid == "t3-graph-2":
-                    if isinstance(t3_q2_chart, pd.DataFrame) and not t3_q2_chart.empty and "Month" in t3_q2_chart.columns:
-                        return t3_q2_chart[t3_q2_chart["Month"].astype(str) == str(mlabel)].copy()
+                    if (
+                        isinstance(t3_q2_chart, pd.DataFrame)
+                        and not t3_q2_chart.empty
+                        and "Month" in t3_q2_chart.columns
+                    ):
+                        return t3_q2_chart[
+                            t3_q2_chart["Month"].astype(str) == str(mlabel)
+                        ].copy()
                     return pd.DataFrame()
             except Exception:
                 return pd.DataFrame()
@@ -1008,6 +1316,30 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
             except Exception:
                 live_df = pd.DataFrame()
 
+            meta_df = _meta_to_df(meta)
+            analysis_df = live_df if isinstance(live_df, pd.DataFrame) else pd.DataFrame()
+            if not use_filtered_scope and isinstance(meta_df, pd.DataFrame) and not meta_df.empty:
+                analysis_df = meta_df
+
+            if (
+                gid == "t2-graph-dyn"
+                and use_filtered_scope
+                and isinstance(analysis_df, pd.DataFrame)
+            ):
+                meta_x = None
+                meta_y = None
+                meta_color = None
+                if isinstance(meta, dict):
+                    meta_x = meta.get("x")
+                    meta_y = meta.get("y")
+                    meta_color = meta.get("color")
+                analysis_df = _prepare_tab2_filtered_df(
+                    analysis_df,
+                    t2_x_current or meta_x,
+                    t2_y_current or meta_y,
+                    (t2_color_current or meta_color or "outlet_category"),
+                )
+
             # Special handling for Tab 3 first graph: provide a small, focused table (KPI gaps)
             special_tab3_small = False
             gap_df = None
@@ -1042,14 +1374,14 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                                     )
                         return _pd.DataFrame(rows_g)
 
-                    gap_df = _gap_table(live_df)
+                    gap_df = _gap_table(analysis_df)
                     if isinstance(gap_df, pd.DataFrame) and not gap_df.empty:
                         special_tab3_small = True
                 except Exception:
                     special_tab3_small = False
 
             # Choose base dataframe for the payload (small focused table if available)
-            base_df = gap_df if special_tab3_small else live_df
+            base_df = gap_df if special_tab3_small else analysis_df
 
             item = {
                 "graph_id": gid,
@@ -1071,6 +1403,11 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     else meta.get("records", [])
                 ),
             }
+            payload_df = (
+                base_df
+                if isinstance(base_df, pd.DataFrame)
+                else _meta_to_df(meta)
+            )
             # Attach computed per-column statistics to reduce LLM arithmetic errors
             try:
                 from utils.df_summary import describe_by_column, grouped_stats_selected
@@ -1152,7 +1489,11 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
             if gid == "q2":
                 try:
                     # Use detailed Tab1 dataset with Month preserved
-                    t1_detail = t1_q1_f if isinstance(t1_q1_f, pd.DataFrame) else pd.DataFrame()
+                    t1_detail = (
+                        analysis_df
+                        if isinstance(analysis_df, pd.DataFrame)
+                        else pd.DataFrame()
+                    )
                     if not t1_detail.empty and {
                         "Month",
                         "outlet_category",
@@ -1179,6 +1520,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                                     "rows": mix.to_dict("records"),
                                 }
                             )
+                            analysis_cache[f"{gid}-month-mix"] = mix.copy()
                 except Exception:
                     pass
 
@@ -1225,6 +1567,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                             "rows": gap_df.to_dict("records"),
                         }
                     )
+                    analysis_cache[f"{gid}-gaps"] = gap_df.copy()
                 except Exception:
                     pass
             # Ensure q3 reflects current drilldown handled above via live_df
@@ -1253,6 +1596,11 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
             # When not comparing months, include the combined/concatenated dataset
             if not compare_on:
                 charts_payload.append(item)
+                analysis_cache[item["graph_id"]] = (
+                    payload_df.copy()
+                    if isinstance(payload_df, pd.DataFrame)
+                    else pd.DataFrame()
+                )
 
             # If user enabled Compare Months, add per-month payloads via DRY helper and
             # intentionally skip the concatenated one so the LLM only sees per-month frames.
@@ -1276,6 +1624,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                             "group_stats": grp,
                         }
                     )
+                    analysis_cache[f"{gid}-month-{mlabel}"] = sub.copy()
 
         if not charts_payload:
             return html.Div(
@@ -1283,7 +1632,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     html.H4("No data available.", style={"color": "#991B1B"}),
                     html.P("Re-select charts after adjusting filters."),
                 ]
-            ), no_update
+            ), no_update, False
 
         # Derive top-level metadata for prompt (x/y/legend) when available
         top_metadata = {}
@@ -1658,17 +2007,24 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     )
                 )
 
-            return html.Div(sections), debug_view
+            return html.Div(sections), debug_view, True
 
         # Optional map-reduce path: if full datasets exceed the UI packing limit,
         # analyze via chunked LLM passes to avoid losing information.
         def _build_full_df_for_gid(gid: str) -> pd.DataFrame:
+            cached = analysis_cache.get(gid)
+            if isinstance(cached, pd.DataFrame) and not cached.empty:
+                return cached
+
+            meta_dict = pick_meta_for(gid, (selected_data or {}).get(gid))
+            meta_df = _meta_to_df(meta_dict)
+            if isinstance(meta_df, pd.DataFrame) and not meta_df.empty:
+                return meta_df
+
             try:
-                # Use current chart-scoped dataframe for analysis to reflect filters
                 if gid == "q1":
                     return t1_q1_f
                 if gid == "q2":
-                    # If multiple months are selected, switch to per-month category mix
                     try:
                         sel_months_local = list((gf or {}).get("months") or [])
                     except Exception:
@@ -1676,6 +2032,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     if len(sel_months_local) > 1:
                         try:
                             from utils.df_summary import category_mix_by_month
+
                             detail_df = (
                                 t1_q4_u if isinstance(t1_q4_u, pd.DataFrame) else t1_q4_f
                             )
@@ -1688,10 +2045,14 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                                 ].copy()
                         except Exception:
                             pass
-                    return t1_q2_u  # unfiltered by design
+                    return t1_q2_u
                 if gid == "q3":
                     regs_sel = list((gf or {}).get("regions") or [])
-                    if len(regs_sel) == 1 and isinstance(t1_q4_f, pd.DataFrame) and not t1_q4_f.empty:
+                    if (
+                        len(regs_sel) == 1
+                        and isinstance(t1_q4_f, pd.DataFrame)
+                        and not t1_q4_f.empty
+                    ):
                         df = t1_q4_f.copy()
                         if "rgn" in df.columns:
                             try:
@@ -1705,11 +2066,18 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 if gid == "q5":
                     return t1_q5_f
                 if gid == "q6":
-                    # Derived counts from filtered detail
-                    d = t1_q4_f if isinstance(t1_q4_f, pd.DataFrame) and not t1_q4_f.empty else t1_q1_f
+                    d = (
+                        t1_q4_f
+                        if isinstance(t1_q4_f, pd.DataFrame) and not t1_q4_f.empty
+                        else t1_q1_f
+                    )
                     if not isinstance(d, pd.DataFrame) or d.empty:
                         return pd.DataFrame(columns=["category", "count"])
-                    cat_col = "outlet_category" if "outlet_category" in d.columns else ("Category" if "Category" in d.columns else None)
+                    cat_col = (
+                        "outlet_category"
+                        if "outlet_category" in d.columns
+                        else ("Category" if "Category" in d.columns else None)
+                    )
                     if not cat_col:
                         return pd.DataFrame(columns=["category", "count"])
                     try:
@@ -1769,6 +2137,19 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     # fall back silently if filtering fails
                     pass
 
+            if (
+                use_filtered_scope
+                and base_gid == "t2-graph-dyn"
+                and isinstance(df_full, pd.DataFrame)
+            ):
+                chart_meta = ch.get("meta") if isinstance(ch, dict) else {}
+                df_full = _prepare_tab2_filtered_df(
+                    df_full,
+                    t2_x_current or (chart_meta or {}).get("x"),
+                    t2_y_current or (chart_meta or {}).get("y"),
+                    (t2_color_current or (chart_meta or {}).get("color") or "outlet_category"),
+                )
+
             full_dfs_by_gid[gid] = df_full
             try:
                 if isinstance(df_full, pd.DataFrame) and len(df_full) > max(300, int(ch.get("n_rows") or 0)):
@@ -1785,10 +2166,12 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 # Single-chart path: use the first selected chart for analysis
                 ch = charts_payload[0]
                 gid = ch.get("graph_id")
+
+                df_full_candidate = full_dfs_by_gid.get(gid)
                 final_text, err = summarize_chart_via_chunks(
                     graph_id=gid,
                     graph_label=ch.get("graph_label") or gid,
-                    df_full=full_dfs_by_gid.get(gid) or pd.DataFrame(),
+                    df_full=df_full_candidate if df_full_candidate is not None else pd.DataFrame(),
                     meta=ch.get("meta") or {},
                     provider=provider,
                     context_text="Generate precise, quantified insights from the complete dataset.",
@@ -1801,7 +2184,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                             html.H4("Error Generating Report", style={"color": "#991B1B"}),
                             html.P(f"LLM error: {err}"),
                         ]
-                    ), debug_view
+                    ), debug_view, False
                 # Apply 2-decimal rounding to chunked output
                 final_text = _fmt_two_decimals_text(final_text or "")
                 return html.Div(
@@ -1809,16 +2192,17 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                         html.H4("Generated Insights", style={"color": "#007bff"}),
                         dcc.Markdown(final_text or "_No content returned._", link_target="_blank"),
                     ]
-                ), debug_view
+                ), debug_view, True
 
             # Combined mode: per-chart map-reduce then synthesis
             per_texts = []
             for ch in charts_payload:
                 gid = ch.get("graph_id")
+                df_full_candidate = full_dfs_by_gid.get(gid)
                 text_i, err_i = summarize_chart_via_chunks(
                     graph_id=gid,
                     graph_label=ch.get("graph_label") or gid,
-                    df_full=full_dfs_by_gid.get(gid) or pd.DataFrame(),
+                    df_full=df_full_candidate if df_full_candidate is not None else pd.DataFrame(),
                     meta=ch.get("meta") or {},
                     provider=provider,
                     context_text="Generate precise, quantified insights from the complete dataset.",
@@ -1831,7 +2215,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                             html.H4("Error Generating Report", style={"color": "#991B1B"}),
                             html.P(f"LLM error: {err_i}"),
                         ]
-                    ), debug_view
+                    ), debug_view, False
                 per_texts.append((ch.get("graph_label") or gid, text_i or ""))
 
             final_text, err = synthesize_across_charts(
@@ -1846,7 +2230,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                         html.H4("Error Generating Report", style={"color": "#991B1B"}),
                         html.P(f"LLM error: {err}"),
                     ]
-                ), debug_view
+                ), debug_view, False
 
             # Round numbers in final combined text as well
             final_text = _fmt_two_decimals_text(final_text or "")
@@ -1855,7 +2239,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     html.H4("Generated Insights", style={"color": "#007bff"}),
                     dcc.Markdown(final_text or "_No content returned._", link_target="_blank"),
                 ]
-            ), debug_view
+            ), debug_view, True
 
         # Use the same output structure for combined and individual insights
         # by routing both modes through the individual prompt builder.
@@ -1877,7 +2261,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     html.H4("Error Generating Report", style={"color": "#991B1B"}),
                     html.P(f"LLM error: {err}"),
                 ]
-            ), debug_view
+            ), debug_view, False
 
         # Some models wrap the entire response in triple backticks, causing it to
         # render as a code block instead of markdown. Strip a single outer fence.
@@ -1909,7 +2293,64 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 html.H4("Generated Insights", style={"color": "#007bff"}),
                 dcc.Markdown(pointy or "_No content returned._", link_target="_blank"),
             ]
-        ), debug_view
+        ), debug_view, True
+
+    @app.callback(
+        Output("outlet-category-filter", "disabled"),
+        Output("outlet-category-filter", "style"),
+        Output("region-filter", "disabled"),
+        Output("region-filter", "style"),
+        Output("outlet-type-filter", "disabled"),
+        Output("outlet-type-filter", "style"),
+        Output("month-filter", "disabled"),
+        Output("month-filter", "style"),
+        Output("reset-button", "disabled"),
+        Output("reset-button", "style"),
+        Output("clear-selection", "disabled"),
+        Output("clear-selection", "style"),
+        Output("generate-button", "disabled"),
+        Output("generate-button", "style"),
+        Output("month-compare-toggle-side", "style"),
+        Output("insight-data-scope-toggle", "style"),
+        Output("t2-x-param", "disabled"),
+        Output("t2-x-param", "style"),
+        Output("t2-y-param", "disabled"),
+        Output("t2-y-param", "style"),
+        Output("t2-color-dim", "disabled"),
+        Output("t2-color-dim", "style"),
+        Input("insights-active", "data"),
+    )
+    def toggle_filter_controls(insights_active):
+        disabled = bool(insights_active)
+        dropdown_style = _dropdown_cursor_style(disabled)
+        checklist_style = _checklist_cursor_style(disabled)
+        reset_style = _button_cursor_style(RESET_BUTTON_STYLE, disabled)
+        clear_sel_style = _button_cursor_style(CLEAR_SELECTION_STYLE, disabled)
+        generate_style = _button_cursor_style(GENERATE_BUTTON_STYLE, disabled)
+        return (
+            disabled,
+            dropdown_style,
+            disabled,
+            dropdown_style.copy(),
+            disabled,
+            dropdown_style.copy(),
+            disabled,
+            dropdown_style.copy(),
+            disabled,
+            reset_style,
+            disabled,
+            clear_sel_style,
+            disabled,
+            generate_style,
+            checklist_style,
+            checklist_style,
+            disabled,
+            dropdown_style.copy(),
+            disabled,
+            dropdown_style.copy(),
+            disabled,
+            dropdown_style.copy(),
+        )
 
     # ----- Filter controller: click-to-filter + global slicers -----
     @app.callback(
@@ -1940,6 +2381,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         State("filter-store", "data"),
         State("active-selection", "data"),
         State("t2-color-dim", "value"),
+        State("insights-active", "data"),
         prevent_initial_call=True,
     )
     def update_filters_and_ui(
@@ -1960,7 +2402,10 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         current_filters,
         active_selection,
         t2_color_dim,
+        insights_active,
     ):
+        if bool(insights_active):
+            raise PreventUpdate
         def make_key(graph_id, point):
             def _cd(p, i=0, default=None):
                 try:
@@ -2445,7 +2890,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         # Tab 1 mapping (ensure datasets match what's drawn)
         if triggered.startswith("btn-select-q"):
             # Build both full (unfiltered) and chart (current-filtered) datasets
-            tab1_full = combine_months({"months": list((filters or {}).get("months") or ["april"])}, "tab1")
+            tab1_full = combine_months({"months": list((filters or {}).get("months") or ["april"])} , "tab1")
             df_q1_full, df_q2_full, df_q3_full, df_q4_full, df_q5_full = t1_get_filtered_frames(
                 tab1_full, {"months": list((filters or {}).get("months") or ["april"]) }
             )
@@ -3327,9 +3772,12 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         Output("tab3-filter-store", "data"),
         Input("t3-graph-1", "clickData"),
         State("tab3-filter-store", "data"),
+        State("insights-active", "data"),
         prevent_initial_call=True,
     )
-    def update_tab3_filters(c1, current):
+    def update_tab3_filters(c1, current, insights_active):
+        if bool(insights_active):
+            raise PreventUpdate
         current = dict(
             current
             or {
