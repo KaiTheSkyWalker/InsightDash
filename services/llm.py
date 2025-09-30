@@ -48,7 +48,6 @@ def generate_markdown_from_prompt(
                 candidates_token_count = usage_metadata.candidates_token_count
                 total_token_count = usage_metadata.total_token_count
 
-                # Cost calculation (example for gemini-1.5-pro)
                 cost = ((prompt_token_count / 1_000_000) * 7) + ((candidates_token_count / 1_000_000) * 21)
 
                 usage_logger.info(f"Tokens: {total_token_count} (prompt: {prompt_token_count}, candidates: {candidates_token_count}) | Cost: ${cost:.6f}")

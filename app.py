@@ -1,7 +1,7 @@
 import dash
 import re
 from typing import Dict
-from dash import dcc, html, Input, Output, State, ctx, no_update
+from dash import dcc, html, Input, Output, State, ctx, no_update, ALL
 from dash import dash_table
 from dash.exceptions import PreventUpdate
 import pandas as pd
@@ -32,7 +32,13 @@ import os
 from data_layer.tab_1 import get_tab1_results
 from data_layer.tab_2 import get_tab2_results
 from data_layer.tab_3 import get_tab3_results
-from config.settings import GOOGLE_API_KEY, MODEL_NAME
+from config.settings import (
+    GOOGLE_API_KEY,
+    MODEL_NAME,
+    ENABLE_DASH_AUTH,
+    DASH_AUTH_USERNAME,
+    DASH_AUTH_PASSWORD,
+)
 from services.llm import generate_markdown_from_prompt
 from services.insights import summarize_chart_via_chunks, synthesize_across_charts
 from services.prompts import build_prompt_individual
@@ -44,6 +50,7 @@ from utils.colors import (
     base_palette,
 )
 import plotly.io as pio
+from authentication import maybe_enable_basic_auth, resolve_credentials
 from app_tabs.tab1.layout import get_layout as tab1_layout
 from app_tabs.tab2.layout import get_layout as tab2_layout
 from app_tabs.tab3.layout import get_layout as tab3_layout
@@ -276,6 +283,12 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         __name__,
         suppress_callback_exceptions=True,
         external_stylesheets=external_stylesheets,
+    )
+
+    maybe_enable_basic_auth(
+        app,
+        enabled=ENABLE_DASH_AUTH,
+        credentials=resolve_credentials(DASH_AUTH_USERNAME, DASH_AUTH_PASSWORD),
     )
 
     # Set a consistent blue-forward plotly template across all figures
@@ -2776,33 +2789,12 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
     # ----- Multi-select buttons: capture selections & store snapshots -----
     @app.callback(
         Output("selected-graphs", "data"),
-        # Visual feedback on selected buttons
-        Output("btn-select-q1", "aria-pressed"),
-        Output("btn-select-q2", "aria-pressed"),
-        Output("btn-select-q3", "aria-pressed"),
-        Output("btn-select-q4", "aria-pressed"),
-        Output("btn-select-q5", "aria-pressed"),
-        Output("btn-select-q6", "aria-pressed"),
-        Output("btn-select-t2-dyn", "aria-pressed"),
-        Output("btn-select-t3-1", "aria-pressed"),
-        Output("btn-select-t3-3", "aria-pressed"),
+        Output({"type": "select-btn", "graph": ALL}, "aria-pressed"),
         Output("selected-data", "data"),
         Output("selected-info", "children"),
-        # Tab 1 buttons
-        Input("btn-select-q1", "n_clicks"),
-        Input("btn-select-q2", "n_clicks"),
-        Input("btn-select-q3", "n_clicks"),
-        Input("btn-select-q4", "n_clicks"),
-        Input("btn-select-q5", "n_clicks"),
-        Input("btn-select-q6", "n_clicks"),
-        # Tab 2 button
-        Input("btn-select-t2-dyn", "n_clicks"),
-        # Tab 3 buttons
-        Input("btn-select-t3-1", "n_clicks"),
-        Input("btn-select-t3-3", "n_clicks"),
-        # Clear selection button in sidebar
+        Input({"type": "select-btn", "graph": ALL}, "n_clicks"),
         Input("clear-selection", "n_clicks"),
-        # States
+        State({"type": "select-btn", "graph": ALL}, "id"),
         State("filter-store", "data"),
         State("tab3-filter-store", "data"),
         State("selected-graphs", "data"),
@@ -2813,29 +2805,24 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         State("t2-color-dim", "value"),
         prevent_initial_call=True,
     )
-    def handle_select(*args):
-        (
-            btn1,
-            btn2,
-            btn3,
-            btn4,
-            btn5,
-            btn6,
-            t2dyn,
-            t3b1,
-            t3b3,
-            clear_btn,
-            filters,
-            tab3_local,
-            selected_graphs,
-            selected_data,
-            t2_x,
-            t2_y,
-            t2_color,
-        ) = args
+    def handle_select(
+        _button_clicks,
+        _clear_btn,
+        button_ids,
+        filters,
+        tab3_local,
+        selected_graphs,
+        selected_data,
+        t2_x,
+        t2_y,
+        t2_color,
+    ):
         triggered = ctx.triggered_id
         if triggered is None:
             raise PreventUpdate
+
+        button_ids = button_ids or []
+        graph_order = [btn.get("graph") for btn in button_ids]
 
         selected_graphs = list(selected_graphs or [])
         selected_data = dict(selected_data or {})
@@ -2846,8 +2833,15 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 "No charts selected yet.",
                 style={"color": "#6b7280", "fontSize": "13px"},
             )
-            pressed = ["false"] * 9
-            return [], *pressed, {}, info
+            pressed = ["false"] * len(graph_order)
+            return [], pressed, {}, info
+
+        if not isinstance(triggered, dict):
+            raise PreventUpdate
+
+        graph_key = triggered.get("graph")
+        if not graph_key:
+            raise PreventUpdate
 
         # Helper to add/remove
         def toggle(graph_id: str, df_full, df_chart):
@@ -2887,12 +2881,17 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
             stats["n"] = int(len(dframe))
             return stats
 
+        tab1_graphs = {"q1", "q2", "q3", "q4", "q5", "q6"}
+        tab3_graphs = {"t3-graph-1", "t3-graph-2"}
+
         # Tab 1 mapping (ensure datasets match what's drawn)
-        if triggered.startswith("btn-select-q"):
+        if graph_key in tab1_graphs:
             # Build both full (unfiltered) and chart (current-filtered) datasets
-            tab1_full = combine_months({"months": list((filters or {}).get("months") or ["april"])} , "tab1")
+            tab1_full = combine_months(
+                {"months": list((filters or {}).get("months") or ["april"])}, "tab1"
+            )
             df_q1_full, df_q2_full, df_q3_full, df_q4_full, df_q5_full = t1_get_filtered_frames(
-                tab1_full, {"months": list((filters or {}).get("months") or ["april"]) }
+                tab1_full, {"months": list((filters or {}).get("months") or ["april"])}
             )
             tab1_chart = combine_months(filters, "tab1")
             df_q1_chart, df_q2_chart, df_q3_chart, df_q4_chart, df_q5_chart = t1_get_filtered_frames(
@@ -2942,23 +2941,20 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 return c
 
             id_map = {
-                "btn-select-q1": ("q1", df_q1_full, df_q1_chart),
-                # q2 ignores filters in the figure; pass unfiltered for both full and chart
-                "btn-select-q2": ("q2", df_q2_full, df_q2_full),
-                "btn-select-q3": ("q3", q3_full_df, q3_chart_df),
-                "btn-select-q4": ("q4", df_q4_full, df_q4_chart),
-                "btn-select-q5": ("q5", df_q5_full, df_q5_chart),
-                # q6 should receive aggregated counts to match the figure
-                "btn-select-q6": (
-                    "q6",
+                "q1": (df_q1_full, df_q1_chart),
+                "q2": (df_q2_full, df_q2_full),
+                "q3": (q3_full_df, q3_chart_df),
+                "q4": (df_q4_full, df_q4_chart),
+                "q5": (df_q5_full, df_q5_chart),
+                "q6": (
                     _cat_counts(df_q4_full, df_q1_full),
                     _cat_counts(df_q4_chart, df_q1_chart),
                 ),
             }
-            gid, df_full, df_chart = id_map[triggered]
-            toggle(gid, df_full, df_chart)
+            df_full, df_chart = id_map[graph_key]
+            toggle(graph_key, df_full, df_chart)
             # Attach meta per figure where applicable
-            if gid == "q3":
+            if graph_key == "q3":
                 # Performance vs Quality scatter by region/outlet
                 try:
                     import pandas as _pd
@@ -2985,7 +2981,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                         r = float(x2.corr(y2)) if len(d) >= 2 else None
                     except Exception:
                         pass
-                    md = selected_data.get(gid, {})
+                    md = selected_data.get(graph_key, {})
                     md["meta"] = {
                         "x": xcol,
                         "y": ycol,
@@ -2993,21 +2989,21 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                         "stats": _basic_stats(d, [xcol, ycol]),
                         "correlation_r": r,
                     }
-                    selected_data[gid] = md
+                    selected_data[graph_key] = md
                 except Exception:
                     pass
         # Tab 2 dynamic (store UNFILTERED datasets for LLM)
-        elif triggered == "btn-select-t2-dyn":
+        elif graph_key == "t2-graph-dyn":
             tab2_full = combine_months({"months": list((filters or {}).get("months") or ["april"])}, "tab2")
             ret_full = t2_get_filtered_frames(tab2_full, {"months": list((filters or {}).get("months") or ["april"])})
             tab2_chart = combine_months(filters, "tab2")
             ret_chart = t2_get_filtered_frames(tab2_chart, (filters or {}))
             df1_full = ret_full[0] if isinstance(ret_full, tuple) else ret_full
             df1_chart = ret_chart[0] if isinstance(ret_chart, tuple) else ret_chart
-            toggle("t2-graph-dyn", df1_full, df1_chart)
+            toggle(graph_key, df1_full, df1_chart)
             # Attach axis/color selections for LLM prompt only when selected
-            if "t2-graph-dyn" in selected_graphs:
-                md = selected_data.get("t2-graph-dyn", {})
+            if graph_key in selected_graphs:
+                md = selected_data.get(graph_key, {})
                 # compute r and stats from chart dataframe
                 try:
                     import pandas as _pd
@@ -3031,9 +3027,9 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     }
                 except Exception:
                     md["meta"] = {"x": t2_x, "y": t2_y, "color": t2_color}
-                selected_data["t2-graph-dyn"] = md
+                selected_data[graph_key] = md
         # Tab 3 mapping (store UNFILTERED datasets for LLM)
-        else:
+        elif graph_key in tab3_graphs:
             # Build both full (unfiltered) and chart (global+local filtered) datasets
             tab3_full = combine_months({"months": list((filters or {}).get("months") or ["april"])}, "tab3")
             q1_t3_full, q2_t3_full, q3_t3_full, q4_t3_full = t3_get_filtered_frames(
@@ -3064,28 +3060,24 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 "search_text": gf.get("search_text", ""),
                 "outlet_types": list(gf.get("outlet_types", [])),
             }
+            tab3_current = combine_months(filters, "tab3") or {}
             q1_t3_chart, q2_t3_chart, q3_t3_chart, q4_t3_chart = t3_get_filtered_frames(
-                combine_months(filters, "tab3") or {},
+                tab3_current,
                 merged
             )
             id_map3 = {
-                "btn-select-t3-1": ("t3-graph-1", q1_t3_full, q1_t3_chart),
+                "t3-graph-1": (q1_t3_full, q1_t3_chart),
                 # Profiles should match the static pre-aggregated radar source
-                "btn-select-t3-3": (
-                    "t3-graph-2",
-                    (combine_months(filters, "tab3") or {}).get(
-                        "radar-chart-before-filtering-q2", pd.DataFrame()
-                    ),
-                    (combine_months(filters, "tab3") or {}).get(
-                        "radar-chart-before-filtering-q2", pd.DataFrame()
-                    ),
+                "t3-graph-2": (
+                    tab3_current.get("radar-chart-before-filtering-q2", pd.DataFrame()),
+                    tab3_current.get("radar-chart-before-filtering-q2", pd.DataFrame()),
                 ),
             }
-            gid, df_full, df_chart = id_map3[triggered]
-            toggle(gid, df_full, df_chart)
+            df_full, df_chart = id_map3[graph_key]
+            toggle(graph_key, df_full, df_chart)
             # For the top Tab 3 chart, also include the alternate dataset (q2) for LLM when selected
-            if gid == "t3-graph-1" and ("t3-graph-1" in selected_graphs):
-                sd = selected_data.get(gid, {})
+            if graph_key == "t3-graph-1" and (graph_key in selected_graphs):
+                sd = selected_data.get(graph_key, {})
                 # alt_full should reflect the pre-aggregated q2 table from data layer (sheet3)
                 alt_unfiltered = (data_dict_3 or {}).get("q2", pd.DataFrame())
                 sd["alt_full"] = pack_df(alt_unfiltered)
@@ -3144,7 +3136,7 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                     }
                 except Exception:
                     pass
-                selected_data[gid] = sd
+                selected_data[graph_key] = sd
 
         def label(gid):
             return GRAPH_LABELS.get(gid, gid)
@@ -3154,9 +3146,8 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 "No charts selected yet.",
                 style={"color": "#6b7280", "fontSize": "13px"},
             )
-            # q1..q6 (6) + t2-dyn (1) + t3-1 (1) + t3-3 (1) = 9
-            pressed = ["false"] * 9
-            return [], *pressed, selected_data, info
+            pressed = ["false"] * len(graph_order)
+            return [], pressed, selected_data, info
 
         # chip style
         def chip(text):
@@ -3187,21 +3178,12 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
             ]
         )
 
-        # Build aria-pressed map for all select buttons
-        btn_ids = [
-            "q1",
-            "q2",
-            "q3",
-            "q4",
-            "q5",
-            "q6",
-            "t2-graph-dyn",
-            "t3-graph-1",
-            "t3-graph-2",
+        pressed = [
+            "true" if gid in selected_graphs else "false"
+            for gid in graph_order
         ]
-        pressed = [("true" if gid in selected_graphs else "false") for gid in btn_ids]
 
-        return selected_graphs, *pressed, selected_data, info
+        return selected_graphs, pressed, selected_data, info
 
     # ----- View-underlying-data tables (inline) -----
     @app.callback(

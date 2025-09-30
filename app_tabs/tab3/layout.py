@@ -32,8 +32,9 @@ def get_layout():
                                         [
                                             html.Button(
                                                 "Select this graph",
-                                                id="btn-select-t3-1",
+                                                id={"type": "select-btn", "graph": "t3-graph-1"},
                                                 n_clicks=0,
+                                                className="graph-select-btn",
                                             ),
                                             # Distinct keys ensure Dash treats these as separate controls
                                             html.Button(
@@ -80,8 +81,9 @@ def get_layout():
                                         [
                                             html.Button(
                                                 "Select this graph",
-                                                id="btn-select-t3-3",
+                                                id={"type": "select-btn", "graph": "t3-graph-2"},
                                                 n_clicks=0,
+                                                className="graph-select-btn",
                                             ),
                                             html.Button(
                                                 "View data",

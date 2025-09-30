@@ -30,8 +30,9 @@ def get_layout():
                                 [
                                     html.Button(
                                         "Select this graph",
-                                        id="btn-select-q2",
+                                        id={"type": "select-btn", "graph": "q2"},
                                         n_clicks=0,
+                                        className="graph-select-btn",
                                     ),
                                     html.Button(
                                         "View data",
@@ -62,8 +63,9 @@ def get_layout():
                                 [
                                     html.Button(
                                         "Select this graph",
-                                        id="btn-select-q6",
+                                        id={"type": "select-btn", "graph": "q6"},
                                         n_clicks=0,
+                                        className="graph-select-btn",
                                     ),
                                     html.Button(
                                         "View data",
@@ -94,8 +96,9 @@ def get_layout():
                                 [
                                     html.Button(
                                         "Select this graph",
-                                        id="btn-select-q3",
+                                        id={"type": "select-btn", "graph": "q3"},
                                         n_clicks=0,
+                                        className="graph-select-btn",
                                     ),
                                     html.Button(
                                         "View data",
@@ -116,11 +119,26 @@ def get_layout():
             # Hidden extras to keep callbacks stable (not visible)
             html.Div(
                 [
-                    html.Button("Select this graph", id="btn-select-q1", n_clicks=0),
+                    html.Button(
+                        "Select this graph",
+                        id={"type": "select-btn", "graph": "q1"},
+                        n_clicks=0,
+                        className="graph-select-btn",
+                    ),
                     html.Button("View data", id="btn-view-q1", n_clicks=0),
-                    html.Button("Select this graph", id="btn-select-q4", n_clicks=0),
+                    html.Button(
+                        "Select this graph",
+                        id={"type": "select-btn", "graph": "q4"},
+                        n_clicks=0,
+                        className="graph-select-btn",
+                    ),
                     html.Button("View data", id="btn-view-q4", n_clicks=0),
-                    html.Button("Select this graph", id="btn-select-q5", n_clicks=0),
+                    html.Button(
+                        "Select this graph",
+                        id={"type": "select-btn", "graph": "q5"},
+                        n_clicks=0,
+                        className="graph-select-btn",
+                    ),
                     html.Button("View data", id="btn-view-q5", n_clicks=0),
                     dcc.Graph(id="graph-q5"),
                     html.Div(id="table-q5"),

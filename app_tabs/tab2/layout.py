@@ -23,9 +23,10 @@ def get_layout():
                                 [
                                     html.Button(
                                         "Select this graph",
-                                        id="btn-select-t2-dyn",
+                                        id={"type": "select-btn", "graph": "t2-graph-dyn"},
                                         n_clicks=0,
                                         style=btn_style,
+                                        className="graph-select-btn",
                                     ),
                                     html.Button(
                                         "View data",
