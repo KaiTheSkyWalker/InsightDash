@@ -1,6 +1,5 @@
 import dash
 import re
-from typing import Dict
 from dash import dcc, html, Input, Output, State, ctx, no_update, ALL
 from dash import dash_table
 from dash.exceptions import PreventUpdate
@@ -35,9 +34,6 @@ from data_layer.tab_3 import get_tab3_results
 from config.settings import (
     GOOGLE_API_KEY,
     MODEL_NAME,
-    ENABLE_DASH_AUTH,
-    DASH_AUTH_USERNAME,
-    DASH_AUTH_PASSWORD,
 )
 from services.llm import generate_markdown_from_prompt
 from services.insights import summarize_chart_via_chunks, synthesize_across_charts
@@ -50,7 +46,6 @@ from utils.colors import (
     base_palette,
 )
 import plotly.io as pio
-from authentication import maybe_enable_basic_auth, resolve_credentials
 from app_tabs.tab1.layout import get_layout as tab1_layout
 from app_tabs.tab2.layout import get_layout as tab2_layout
 from app_tabs.tab3.layout import get_layout as tab3_layout
@@ -65,8 +60,6 @@ from app_tabs.tab3.figures import (
     get_filtered_frames_simple as t3_get_filtered_frames,
     KPI_DISPLAY,
 )
-from app_tabs.tab_compare.layout import get_layout as compare_layout
-from app_tabs.tab_compare.figures import build_compare_figures
 from app_tabs.tab2.figures import get_filtered_frames as t2_get_filtered_frames
 from config.logging import configure_logging
 
@@ -283,12 +276,6 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
         __name__,
         suppress_callback_exceptions=True,
         external_stylesheets=external_stylesheets,
-    )
-
-    maybe_enable_basic_auth(
-        app,
-        enabled=ENABLE_DASH_AUTH,
-        credentials=resolve_credentials(DASH_AUTH_USERNAME, DASH_AUTH_PASSWORD),
     )
 
     # Set a consistent blue-forward plotly template across all figures
@@ -3800,32 +3787,6 @@ def create_dashboard(data_dict, data_dict_2, data_dict_3=None, monthly_datasets:
                 )
         # No other Tab 3 interactions
         return newf
-
-    # ----- Comparison tab callbacks -----
-    @app.callback(
-        Output("compare-bar", "figure"),
-        Output("compare-table", "figure"),
-        Input("filter-store", "data"),
-        Input("compare-kpi", "value"),
-        prevent_initial_call=False,
-    )
-    def update_compare(filters, kpi_col):
-        try:
-            months = monthly_datasets or {}
-            month_payload: Dict[str, Dict[str, pd.DataFrame]] = {}
-            selected_months = list((filters or {}).get("months") or months.keys())
-            for label in selected_months:
-                src = months.get(label) or {}
-                d3 = src.get("tab3") if isinstance(src, dict) else {}
-                month_payload[label] = d3 if isinstance(d3, dict) else {}
-            if not month_payload:
-                for label, src in months.items():
-                    d3 = src.get("tab3") if isinstance(src, dict) else {}
-                    month_payload[label] = d3 if isinstance(d3, dict) else {}
-            fig_bar, fig_tbl = build_compare_figures(month_payload, filters or {}, kpi_col)
-            return fig_bar, fig_tbl
-        except Exception:
-            return dash.no_update, dash.no_update
 
     return app
 

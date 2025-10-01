@@ -99,8 +99,6 @@ def summarize_chart_via_chunks(
             full_stats = describe_by_column(df_full)
         except Exception:
             full_stats = {}
-        full_group_stats = {}
-
         if final_prompt_builder is not None:
             agg_prompt = final_prompt_builder(aggregation_payload, context_text, focus_hint)
         else:

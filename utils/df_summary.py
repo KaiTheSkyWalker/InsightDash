@@ -40,7 +40,6 @@ def describe_by_column(df: pd.DataFrame, max_top: int = 5) -> Dict[str, Dict[str
 
     for col in df.columns:
         s = df[col]
-        n_total = int(len(s))
         n_missing = int(s.isna().sum())
         base: Dict[str, Any] = {
             "dtype": str(s.dtype),
