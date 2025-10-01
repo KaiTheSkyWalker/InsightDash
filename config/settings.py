@@ -1,10 +1,13 @@
 import os
 
 # GenAI configuration
-GOOGLE_API_KEY = "AIzaSyArAuKljjmRWYVkZ2ng9OHgUqtJuUuZ5uU"
-MODEL_NAME = os.environ.get("GENAI_MODEL_NAME", "gemini-2.0-flash")
+# It is recommended to set the GOOGLE_API_KEY as an environment variable
+# For example: export GOOGLE_API_KEY="your_api_key"
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
+MODEL_NAME = os.environ.get("GENAI_MODEL_NAME", "gemini-1.0-pro")
 
 # Database configuration (defaults match current code; override via env vars)
+# For example: export DB_SERVER="your_db_server"
 DB_SERVER = os.environ.get("DB_SERVER", "localhost")
 DB_DATABASE = os.environ.get("DB_DATABASE", "Master")
 DB_USERNAME = os.environ.get("DB_USERNAME", "SA")
